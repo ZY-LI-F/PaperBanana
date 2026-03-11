@@ -1,6 +1,7 @@
 ---
 name: paperbanana
 description: Generate publication-quality academic diagrams from paper methodology text
+license: MIT-0
 dependencies:
   env:
     - OPENROUTER_API_KEY (recommended)
