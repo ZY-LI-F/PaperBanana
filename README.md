@@ -221,6 +221,7 @@ streamlit run visualize/show_referenced_eval.py
 Around the release of this repo, we noticed several community efforts to reproduce this work. These efforts introduce unique perspectives that we find incredibly valuable. We highly recommend checking out these excellent contributions: (welcome to add if we missed something):
 - https://github.com/llmsresearch/paperbanana
 - https://github.com/efradeca/freepaperbanana
+- https://github.com/elpsykongloo/PaperBanana-Pro — PaperBanana-Pro: a continuously updated Chinese-enhanced version with a more stable pipeline & more user-friendly experience
 
 Additionally, alongside the development of this method, many other works have been exploring the same topic of automated academic illustration generation—some even enabling editable generated figures. Their contributions are essential to the ecosystem and are well worth your attention (likewise, welcome to add):
 - https://github.com/ResearAI/AutoFigure-Edit
