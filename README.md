@@ -6,6 +6,7 @@
 <div align="center">
 <a href="https://huggingface.co/papers/2601.23265"><img src="assets/paper-page-xl.svg" alt="Paper page on HF"></a>
 <a href="https://huggingface.co/datasets/dwzhu/PaperBananaBench"><img src="assets/dataset-on-hf-xl.svg" alt="Dataset on HF"></a>
+<a href="https://huggingface.co/spaces/dwzhu/PaperBanana"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Spaces-PaperBanana-yellow" alt="Demo on HF Spaces"></a>
 </div>
 
 > Hi everyone! The original version of PaperBanana is already open-sourced under Google-Research as [PaperVizAgent](https://github.com/google-research/papervizagent). 
@@ -81,6 +82,18 @@ First download [PaperBananaBench](https://huggingface.co/datasets/dwzhu/PaperBan
     ```
 
 ### Launch PaperBanana
+
+#### Gradio Web App (Recommended)
+
+**Try it online — no setup required:**  
+👉 **[PaperBanana on Hugging Face Spaces](https://huggingface.co/spaces/dwzhu/PaperBanana)**
+
+To get started, enter your API key (Google Gemini or OpenRouter) in the **Settings** panel, then configure your desired parameters (pipeline mode, number of candidates, aspect ratio, etc.), paste your method section text and figure caption, and click **Generate**.
+
+You can also run the Gradio app locally:
+```bash
+python app.py
+```
 
 #### Interactive Demo (Streamlit)
 The easiest way to launch PaperBanana is via the interactive Streamlit demo:
