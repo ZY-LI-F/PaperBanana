@@ -140,6 +140,17 @@ class VisualizerAgent(BaseAgent):
         
         for desc_key in desc_keys_to_process:
             prompt_text = cfg["prompt_template"].format(desc=data[desc_key])
+            # Belt-and-suspenders: re-assert the figure-language constraint at image-gen time,
+            # because the description may have come from Planner / Stylist / Critic and the image
+            # model (qwen-image, gemini-image, …) often follows the nearest instruction.
+            lang = (data.get("additional_info") or {}).get("figure_language", "")
+            if lang == "zh":
+                prompt_text += (
+                    "\nLanguage constraint: ALL text rendered inside the image (labels, titles, "
+                    "arrows, annotations) MUST be Simplified Chinese. No English text of any kind."
+                )
+            elif lang == "en":
+                prompt_text += "\nLanguage constraint: ALL text rendered inside the image must be in English."
             content_list = [{"type": "text", "text": prompt_text}]
             
             gen_config_args = {
@@ -155,49 +166,25 @@ class VisualizerAgent(BaseAgent):
                 aspect_ratio = data["additional_info"]["rounded_ratio"]
 
             if cfg["use_image_generation"]:
-                if "gpt-image" in self.model_name:
-                    image_config = {
-                        "size": "1536x1024",
-                        "quality": "high",
-                        "background": "opaque",
-                        "output_format": "png",
-                    }
-                    response_list = await generation_utils.call_openai_image_generation_with_retry_async(
-                        model_name=self.model_name,
-                        prompt=prompt_text,
-                        config=image_config,
-                        max_attempts=5,
-                        retry_delay=30,
-                    )
-                elif generation_utils.openrouter_client is not None:
-                    # OpenRouter image generation
-                    image_config = {
-                        "system_prompt": self.system_prompt,
-                        "temperature": self.exp_config.temperature,
-                        "aspect_ratio": aspect_ratio,
-                        "image_size": "1k",
-                    }
-                    response_list = await generation_utils.call_openrouter_image_generation_with_retry_async(
-                        model_name=self.model_name,
-                        contents=content_list,
-                        config=image_config,
-                        max_attempts=5,
-                        retry_delay=30,
-                    )
-                else:
-                    # Gemini direct image generation
-                    gen_config_args["response_modalities"] = ["IMAGE"]
-                    gen_config_args["image_config"] = types.ImageConfig(
-                        aspect_ratio=aspect_ratio,
-                        image_size="1k",
-                    )
-                    response_list = await generation_utils.call_gemini_with_retry_async(
-                        model_name=self.model_name,
-                        contents=content_list,
-                        config=types.GenerateContentConfig(**gen_config_args),
-                        max_attempts=5,
-                        retry_delay=30,
-                    )
+                image_config = {
+                    "system_prompt": self.system_prompt,
+                    "temperature": self.exp_config.temperature,
+                    "aspect_ratio": aspect_ratio,
+                    "image_size": "1k",
+                    "size": "1536x1024",
+                    "quality": "high",
+                    "background": "opaque",
+                    "output_format": "png",
+                    "max_output_tokens": cfg["max_output_tokens"],
+                }
+                response_list = await generation_utils.call_image_gen_with_retry_async(
+                    model_name=self.model_name,
+                    contents=content_list,
+                    prompt=prompt_text,
+                    config=image_config,
+                    max_attempts=5,
+                    retry_delay=30,
+                )
             else:
                 # Code generation for plots — use the unified router
                 response_list = await generation_utils.call_model_with_retry_async(

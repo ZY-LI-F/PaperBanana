@@ -29,6 +29,16 @@ import sys
 import os
 from datetime import datetime
 
+# Force UTF-8 on stdout/stderr so emoji status prints ("❌ ⚠ ✨ …") don't raise
+# UnicodeEncodeError on Windows consoles configured for cp936/gbk.
+for _stream in (sys.stdout, sys.stderr):
+    reconfig = getattr(_stream, "reconfigure", None)
+    if callable(reconfig):
+        try:
+            reconfig(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # ---------------------------------------------------------------------------
 # Logo (base64-encoded for reliable serving in Gradio)
 # ---------------------------------------------------------------------------
@@ -62,6 +72,123 @@ from agents.vanilla_agent import VanillaAgent
 from agents.polish_agent import PolishAgent
 from utils import config
 from utils.paperviz_processor import PaperVizProcessor
+from utils.provider_registry import get_registry, reload_registry
+
+
+def _chat_model_choices():
+    reg = get_registry()
+    return [(m.label, m.id) for m in reg.list_chat_models()]
+
+
+def _image_model_choices():
+    reg = get_registry()
+    return [(m.label, m.id) for m in reg.list_image_models()]
+
+
+def _registry_to_rows():
+    """Return (providers_rows, models_rows) from the current registry."""
+    reg = get_registry()
+    providers_rows = [
+        [p.id, p.type, p.base_url or "", p.api_key or ""]
+        for p in reg.providers.values()
+    ]
+    models_rows = [
+        [m.provider_id, m.name, m.capability, m.invoke]
+        for p in reg.providers.values()
+        for m in p.models
+    ]
+    if not providers_rows:
+        providers_rows = [["", "", "", ""]]
+    if not models_rows:
+        models_rows = [["", "", "", ""]]
+    return providers_rows, models_rows
+
+
+# (label, [id, type, base_url, api_key])
+PROVIDER_PRESETS_UI = [
+    ("Google Gemini (native)",          ["gemini-official",   "gemini",    "",                                                         ""]),
+    ("阿里 DashScope (OpenAI 兼容)",     ["dashscope",         "openai",    "https://dashscope.aliyuncs.com/compatible-mode/v1",        ""]),
+    ("DeepSeek",                        ["deepseek",          "openai",    "https://api.deepseek.com",                                 ""]),
+    ("OpenRouter",                      ["openrouter",        "openai",    "https://openrouter.ai/api/v1",                             ""]),
+    ("OpenAI",                          ["openai-official",   "openai",    "https://api.openai.com/v1",                                ""]),
+    ("Anthropic",                       ["anthropic-official","anthropic", "",                                                         ""]),
+    ("Moonshot",                        ["moonshot",          "openai",    "https://api.moonshot.cn/v1",                               ""]),
+    ("Zhipu 智谱",                       ["zhipu",             "openai",    "https://open.bigmodel.cn/api/paas/v4",                     ""]),
+    ("SiliconFlow 硅基流动",              ["siliconflow",       "openai",    "https://api.siliconflow.cn/v1",                            ""]),
+    ("Ollama (local)",                  ["ollama",            "openai",    "http://localhost:11434/v1",                                "ollama"]),
+    ("Custom (blank)",                  ["my-provider",       "openai",    "https://example.com/v1",                                   ""]),
+]
+
+# (label, [provider_id, name, capability, invoke])
+MODEL_PRESETS_UI = [
+    ("gemini-official / gemini-3.1-pro-preview",           ["gemini-official",   "gemini-3.1-pro-preview",         "chat",  ""]),
+    ("gemini-official / gemini-3.1-flash-image-preview",   ["gemini-official",   "gemini-3.1-flash-image-preview", "image", ""]),
+    ("dashscope / qwen3.6-plus (thinking, streaming)",     ["dashscope",         "qwen3.6-plus",                   "chat",  ""]),
+    ("dashscope / qwen-max",                               ["dashscope",         "qwen-max",                       "chat",  ""]),
+    ("dashscope / qwen-vl-max-latest",                     ["dashscope",         "qwen-vl-max-latest",             "chat",  ""]),
+    ("dashscope / qwen-plus",                              ["dashscope",         "qwen-plus",                      "chat",  ""]),
+    ("dashscope / wanx2.1-t2i-turbo (image)",              ["dashscope",         "wanx2.1-t2i-turbo",              "image", "openai_images"]),
+    ("dashscope / qwen-image-2.0-pro (image, 推荐)",        ["dashscope",         "qwen-image-2.0-pro",             "image", "dashscope_multimodal"]),
+    ("dashscope / qwen-image-2.0 (image)",                 ["dashscope",         "qwen-image-2.0",                 "image", "dashscope_multimodal"]),
+    ("dashscope / qwen-image-edit-max (image-edit)",       ["dashscope",         "qwen-image-edit-max",            "image", "dashscope_multimodal"]),
+    ("dashscope / qwen-image-edit-plus (image-edit)",      ["dashscope",         "qwen-image-edit-plus",           "image", "dashscope_multimodal"]),
+    ("dashscope / qwen-image-edit (image-edit)",           ["dashscope",         "qwen-image-edit",                "image", "dashscope_multimodal"]),
+    ("deepseek / deepseek-chat",                           ["deepseek",          "deepseek-chat",                  "chat",  ""]),
+    ("deepseek / deepseek-reasoner",                       ["deepseek",          "deepseek-reasoner",              "chat",  ""]),
+    ("openrouter / google/gemini-3-pro-preview",           ["openrouter",        "google/gemini-3-pro-preview",    "chat",  ""]),
+    ("openrouter / google/gemini-3-flash-image-preview",   ["openrouter",        "google/gemini-3-flash-image-preview", "image", "openai_chat_modalities"]),
+    ("openrouter / anthropic/claude-sonnet-4.5",           ["openrouter",        "anthropic/claude-sonnet-4.5",    "chat",  ""]),
+    ("openai-official / gpt-4.1",                          ["openai-official",   "gpt-4.1",                        "chat",  ""]),
+    ("openai-official / gpt-image-1 (image)",              ["openai-official",   "gpt-image-1",                    "image", "openai_images"]),
+    ("anthropic-official / claude-sonnet-4-5",             ["anthropic-official","claude-sonnet-4-5",              "chat",  ""]),
+]
+
+
+def _rows_to_yaml_dict(providers_rows, models_rows, default_main, default_image):
+    # Preserve per-model `params` that the form tab cannot edit (e.g. qwen3.6-plus
+    # `streaming`/`extra_body.enable_thinking`) by looking them up in the currently
+    # loaded registry before we overwrite the file.
+    reg = get_registry()
+    existing_params = {}
+    for prov in reg.providers.values():
+        for m in prov.models:
+            if m.params:
+                existing_params[(prov.id, m.name)] = dict(m.params)
+
+    providers = []
+    seen = {}
+    for row in providers_rows or []:
+        row = list(row) + [""] * (4 - len(row))
+        pid, ptype, base_url, api_key = (str(x or "").strip() for x in row[:4])
+        if not pid:
+            continue
+        p = {"id": pid, "type": ptype or "openai"}
+        if base_url:
+            p["base_url"] = base_url
+        p["api_key"] = api_key
+        p["models"] = []
+        providers.append(p)
+        seen[pid] = p
+    for row in models_rows or []:
+        row = list(row) + [""] * (4 - len(row))
+        prov_id, name, capability, invoke = (str(x or "").strip() for x in row[:4])
+        if not prov_id or not name:
+            continue
+        if prov_id not in seen:
+            continue
+        m = {"name": name, "capability": capability or "chat"}
+        if invoke:
+            m["invoke"] = invoke
+        params = existing_params.get((prov_id, name))
+        if params:
+            m["params"] = params
+        seen[prov_id]["models"].append(m)
+    data = {"providers": providers, "defaults": {}}
+    if default_main:
+        data["defaults"]["main_model"] = default_main
+    if default_image:
+        data["defaults"]["image_gen_model"] = default_image
+    return data
 
 model_config_data = {}
 if config_path.exists():
@@ -99,13 +226,13 @@ def base64_to_image(b64_str):
         return None
 
 
-def create_sample_inputs(method_content, caption, aspect_ratio="16:9", num_copies=10, max_critic_rounds=3):
+def create_sample_inputs(method_content, caption, aspect_ratio="16:9", num_copies=10, max_critic_rounds=3, figure_language=""):
     base_input = {
         "filename": "demo_input",
         "caption": caption,
         "content": method_content,
         "visual_intent": caption,
-        "additional_info": {"rounded_ratio": aspect_ratio},
+        "additional_info": {"rounded_ratio": aspect_ratio, "figure_language": figure_language},
         "max_critic_rounds": max_critic_rounds,
     }
     inputs = []
@@ -146,75 +273,51 @@ async def process_parallel_candidates(
     return results
 
 
-async def refine_image_with_nanoviz(image_bytes, edit_prompt, aspect_ratio="21:9", image_size="2K"):
-    image_model = get_config_val("defaults", "image_gen_model_name", "IMAGE_GEN_MODEL_NAME", "")
+async def refine_image_with_nanoviz(image_bytes, edit_prompt, aspect_ratio="21:9", image_size="2K", image_model_id=""):
+    """Refine an image through the unified image-gen router.
+
+    ``image_model_id`` is a ``provider_id::model_name`` value selected in the UI.
+    Falls back to the registry default when empty.
+    """
+    from utils.generation_utils import call_image_gen_with_retry_async
+
+    reg = get_registry()
+    model_id = image_model_id or reg.default_image()
+    if not model_id:
+        return None, "Error: no image model configured. Open the 'Model & API Configuration' panel to add one."
+
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
-    # Path 1: OpenRouter
+    contents = [
+        {"type": "text", "text": edit_prompt},
+        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
+    ]
+    cfg = {
+        "system_prompt": "",
+        "temperature": 1.0,
+        "aspect_ratio": aspect_ratio,
+        "image_size": image_size,
+        "size": "1536x1024",
+        "quality": "high",
+        "background": "opaque",
+        "output_format": "png",
+        "max_output_tokens": 8192,
+    }
     try:
-        from utils.generation_utils import call_openrouter_image_generation_with_retry_async
-        _has_openrouter = True
-    except ImportError:
-        _has_openrouter = False
-    openrouter_api_key = get_config_val("api_keys", "openrouter_api_key", "OPENROUTER_API_KEY", "")
-    if _has_openrouter and openrouter_api_key:
-        try:
-            contents = [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
-                {"type": "text", "text": edit_prompt},
-            ]
-            cfg = {"system_prompt": "", "temperature": 1.0, "aspect_ratio": aspect_ratio, "image_size": image_size}
-            result = await call_openrouter_image_generation_with_retry_async(
-                model_name=image_model, contents=contents, config=cfg, max_attempts=3, retry_delay=10, error_context="refine_image",
-            )
-            if result and result[0] != "Error":
-                return base64.b64decode(result[0]), "Image refined successfully! (via OpenRouter)"
-        except Exception as e:
-            print(f"OpenRouter refine failed: {e}, falling back...")
-
-    # Path 2 & 3: Gemini native SDK
-    try:
-        from google import genai
-        from google.genai import types
-    except ImportError:
-        return None, "Error: google-genai SDK not installed and OpenRouter unavailable."
-
-    google_api_key = get_config_val("api_keys", "google_api_key", "GOOGLE_API_KEY", "")
-    project_id = get_config_val("google_cloud", "project_id", "GOOGLE_CLOUD_PROJECT", "")
-
-    if google_api_key:
-        client = genai.Client(api_key=google_api_key)
-        via = "Google API key"
-    elif project_id:
-        location = get_config_val("google_cloud", "location", "GOOGLE_CLOUD_LOCATION", "global")
-        client = genai.Client(vertexai=True, project=project_id, location=location)
-        via = "Vertex AI"
-    else:
-        return None, "Error: No API credentials configured."
-
-    try:
-        contents = [
-            types.Part.from_text(text=edit_prompt),
-            types.Part.from_bytes(mime_type="image/jpeg", data=image_bytes),
-        ]
-        gen_config = types.GenerateContentConfig(
-            temperature=1.0, max_output_tokens=8192, response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(aspect_ratio=aspect_ratio, image_size=image_size),
+        result = await call_image_gen_with_retry_async(
+            model_name=model_id,
+            contents=contents,
+            prompt=edit_prompt,
+            config=cfg,
+            max_attempts=3,
+            retry_delay=10,
+            error_context="refine_image",
         )
-        response = await asyncio.to_thread(
-            client.models.generate_content, model=image_model, contents=contents, config=gen_config,
-        )
-        if response.candidates and response.candidates[0].content.parts:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, "inline_data") and part.inline_data:
-                    data = part.inline_data.data
-                    if isinstance(data, bytes):
-                        return data, f"Image refined successfully! (via {via})"
-                    elif isinstance(data, str):
-                        return base64.b64decode(data), f"Image refined successfully! (via {via})"
-        return None, f"No image data found in {via} response"
     except Exception as e:
-        return None, f"{via} error: {str(e)}"
+        return None, f"Image refine error: {e}"
+
+    if not result or result[0] == "Error":
+        return None, f"Refine failed via {model_id}."
+    return base64.b64decode(result[0]), f"Image refined successfully! (via {model_id})"
 
 
 def get_evolution_stages(result, exp_mode):
@@ -444,8 +547,11 @@ CUSTOM_CSS = """
 
 def build_app():
 
-    default_main_model = get_config_val("defaults", "main_model_name", "MAIN_MODEL_NAME", "gemini-3.1-pro-preview")
-    default_image_model = get_config_val("defaults", "image_gen_model_name", "IMAGE_GEN_MODEL_NAME", "gemini-3.1-flash-image-preview")
+    _reg = get_registry()
+    _chat_choices_init = _chat_model_choices()
+    _image_choices_init = _image_model_choices()
+    default_main_model = _reg.default_main() or (_chat_choices_init[0][1] if _chat_choices_init else "")
+    default_image_model = _reg.default_image() or (_image_choices_init[0][1] if _image_choices_init else "")
 
     with gr.Blocks(title="PaperBanana") as app:
         # ---- State to hold results across interactions ----
@@ -486,41 +592,95 @@ def build_app():
         """)
 
         # ================================================================
-        # API KEYS ACCORDION
+        # MODEL & API CONFIGURATION (YAML EDITOR)
         # ================================================================
-        with gr.Accordion("API Keys", open=False):
+        with gr.Accordion("Model & API Configuration", open=False):
             gr.Markdown(
-                "**You do not need both keys.** Fill **at least one**: **OpenRouter** *or* **Google (Gemini)**. "
-                "If both are set, OpenRouter is preferred for automatic routing when available."
+                "Configure providers, API keys and models. Use **Form** for common setups, "
+                "or switch to **YAML** for full control. A model is addressed as `provider_id::model_name`."
             )
-            with gr.Row():
-                openrouter_key_input = gr.Textbox(
-                    label="OpenRouter API Key (optional)", type="password", placeholder="sk-or-...",
-                    value=get_config_val("api_keys", "openrouter_api_key", "OPENROUTER_API_KEY", ""),
-                )
-                google_key_input = gr.Textbox(
-                    label="Google API Key (optional)", type="password", placeholder="AIza...",
-                    value=get_config_val("api_keys", "google_api_key", "GOOGLE_API_KEY", ""),
-                )
-            gr.Markdown("*Keys are used only for this session and never stored.*")
 
-            def apply_keys(or_key, g_key):
-                if or_key:
-                    os.environ["OPENROUTER_API_KEY"] = or_key
-                if g_key:
-                    os.environ["GOOGLE_API_KEY"] = g_key
-                from utils.generation_utils import reinitialize_clients
-                initialized = reinitialize_clients()
-                if initialized:
-                    return f"Clients initialized: {', '.join(initialized)}."
-                return (
-                    "Warning: no API clients could be initialized. "
-                    "Enter at least one key—OpenRouter or Google (Gemini)."
-                )
+            try:
+                _yaml_initial = config_path.read_text(encoding="utf-8") if config_path.exists() else ""
+            except Exception:
+                _yaml_initial = ""
 
-            apply_keys_btn = gr.Button("Apply Keys", size="sm")
-            keys_status = gr.Textbox(visible=False)
-            apply_keys_btn.click(apply_keys, inputs=[openrouter_key_input, google_key_input], outputs=[keys_status])
+            _providers_init, _models_init = _registry_to_rows()
+
+            with gr.Tabs():
+                # ---- FORM TAB ----
+                with gr.TabItem("Form"):
+                    gr.Markdown("**Providers** — one row per API endpoint. `type` ∈ `openai | gemini | anthropic`. Leave `base_url` blank for native SDKs.")
+                    providers_df = gr.Dataframe(
+                        value=_providers_init,
+                        headers=["id", "type", "base_url", "api_key"],
+                        datatype=["str", "str", "str", "str"],
+                        interactive=True,
+                        row_count=(max(1, len(_providers_init)), "dynamic"),
+                        column_count=(4, "fixed"),
+                        wrap=True,
+                    )
+
+                    with gr.Row():
+                        preset_pick = gr.Dropdown(
+                            choices=[p[0] for p in PROVIDER_PRESETS_UI],
+                            label="Add provider from preset",
+                            scale=3,
+                        )
+                        add_preset_btn = gr.Button("+ Add preset row", size="sm", scale=1)
+
+                    gr.Markdown(
+                        "**Models** — one row per model. `capability` ∈ `chat | image`. "
+                        "`invoke` is auto-inferred when blank; override with "
+                        "`gemini_native | openai_chat | openai_images | openai_chat_modalities | "
+                        "dashscope_multimodal | anthropic`."
+                    )
+                    models_df = gr.Dataframe(
+                        value=_models_init,
+                        headers=["provider_id", "name", "capability", "invoke"],
+                        datatype=["str", "str", "str", "str"],
+                        interactive=True,
+                        row_count=(max(1, len(_models_init)), "dynamic"),
+                        column_count=(4, "fixed"),
+                        wrap=True,
+                    )
+
+                    with gr.Row():
+                        model_preset_pick = gr.Dropdown(
+                            choices=[m[0] for m in MODEL_PRESETS_UI],
+                            label="Add model from preset",
+                            scale=3,
+                        )
+                        add_model_preset_btn = gr.Button("+ Add model row", size="sm", scale=1)
+
+                    with gr.Row():
+                        default_main_input = gr.Textbox(
+                            label="Default main model",
+                            value=_reg.default_main(),
+                            placeholder="provider_id::model_name",
+                        )
+                        default_image_input = gr.Textbox(
+                            label="Default image model",
+                            value=_reg.default_image(),
+                            placeholder="provider_id::model_name",
+                        )
+
+                    with gr.Row():
+                        save_form_btn = gr.Button("💾 Save & Reload", variant="primary", size="sm")
+
+                # ---- YAML TAB ----
+                with gr.TabItem("YAML (advanced)"):
+                    yaml_editor = gr.Code(
+                        label="configs/model_config.yaml",
+                        language="yaml",
+                        value=_yaml_initial,
+                        lines=20,
+                    )
+                    with gr.Row():
+                        apply_config_btn = gr.Button("Apply & Reload", variant="primary", size="sm")
+                        reset_config_btn = gr.Button("Load Template", size="sm")
+
+            config_status = gr.Textbox(label="Status", interactive=False, lines=2)
 
         # ================================================================
         # TABS
@@ -577,15 +737,29 @@ def build_app():
                             minimum=1, maximum=5, value=3, step=1,
                             label="Max Critic Rounds",
                         )
-                        main_model_name = gr.Textbox(
-                            label="Model Name",
-                            info="Model name to use for reasoning",
-                            value=default_main_model,
+                        figure_language = gr.Dropdown(
+                            choices=[
+                                ("Auto (follow input language)", ""),
+                                ("简体中文 (force Chinese text)", "zh"),
+                                ("English (force English text)", "en"),
+                            ],
+                            value="",
+                            label="Figure Language",
+                            info="强制图像内文字语言；Auto 跟随输入",
                         )
-                        image_model_name = gr.Textbox(
+                        main_model_name = gr.Dropdown(
+                            label="Main Model (reasoning)",
+                            info="provider_id::model_name — configure in the YAML panel above",
+                            choices=_chat_choices_init,
+                            value=default_main_model if default_main_model else None,
+                            allow_custom_value=True,
+                        )
+                        image_model_name = gr.Dropdown(
                             label="Image Generation Model",
-                            info="Model for generating diagram images",
-                            value=default_image_model,
+                            info="Pick any image-capable model from any provider",
+                            choices=_image_choices_init,
+                            value=default_image_model if default_image_model else None,
+                            allow_custom_value=True,
                         )
                         save_results = gr.Dropdown(
                             choices=["Yes", "No"],
@@ -653,7 +827,7 @@ def build_app():
                 def run_generate(
                     method_text, caption_text, pipe_mode, ret_setting,
                     n_cands, ar, max_rounds, m_model, img_model,
-                    figure_size, save_results,
+                    figure_size, save_results, fig_language,
                     progress=gr.Progress(track_tqdm=True),
                 ):
                     if not method_text or not caption_text:
@@ -667,6 +841,7 @@ def build_app():
                     input_data = create_sample_inputs(
                         method_content=method_text, caption=caption_text,
                         aspect_ratio=ar, num_copies=n_cands, max_critic_rounds=max_rounds,
+                        figure_language=fig_language,
                     )
                     params = {"figure_size": figure_size}
 
@@ -755,7 +930,7 @@ def build_app():
                         method_content, caption_input, pipeline_mode, retrieval_setting,
                         num_candidates, aspect_ratio, max_critic_rounds,
                         main_model_name, image_model_name,
-                        figure_size, save_results,
+                        figure_size, save_results, figure_language,
                     ],
                     outputs=[
                         results_gallery, evolution_html, zip_file_output, status_text,
@@ -781,6 +956,13 @@ def build_app():
                         with gr.Row():
                             refine_resolution = gr.Dropdown(choices=["2K", "4K"], value="2K", label="Resolution")
                             refine_aspect = gr.Dropdown(choices=["21:9", "16:9", "3:2"], value="21:9", label="Aspect Ratio")
+                        refine_image_model = gr.Dropdown(
+                            label="Image Model",
+                            info="provider_id::model_name",
+                            choices=_image_choices_init,
+                            value=default_image_model if default_image_model else None,
+                            allow_custom_value=True,
+                        )
                         refine_btn = gr.Button("Refine Image", variant="primary", elem_classes=["orange-btn"])
 
                 refine_status = gr.Textbox(label="Status", interactive=False)
@@ -790,7 +972,7 @@ def build_app():
                     refine_after = gr.Image(label="After", interactive=False, height=400)
                 refine_download = gr.File(label="Download refined image")
 
-                def run_refine(pil_img, prompt, resolution, ar):
+                def run_refine(pil_img, prompt, resolution, ar, image_model_id):
                     if pil_img is None:
                         raise gr.Error("Please upload an image first.")
                     if not prompt:
@@ -803,7 +985,11 @@ def build_app():
                     loop = asyncio.new_event_loop()
                     try:
                         refined_bytes, msg = loop.run_until_complete(
-                            refine_image_with_nanoviz(image_bytes, prompt, aspect_ratio=ar, image_size=resolution)
+                            refine_image_with_nanoviz(
+                                image_bytes, prompt,
+                                aspect_ratio=ar, image_size=resolution,
+                                image_model_id=image_model_id,
+                            )
                         )
                     except Exception as e:
                         raise gr.Error(f"Refinement error: {e}")
@@ -826,9 +1012,130 @@ def build_app():
 
                 refine_btn.click(
                     fn=run_refine,
-                    inputs=[refine_upload, refine_prompt, refine_resolution, refine_aspect],
+                    inputs=[refine_upload, refine_prompt, refine_resolution, refine_aspect, refine_image_model],
                     outputs=[refine_before, refine_after, refine_download, refine_status],
                 )
+
+        # ================================================================
+        # WIRE CONFIG EDITORS -> DROPDOWN REFRESH
+        # ================================================================
+        def _rebuild_dropdowns_after_reload(status_prefix=""):
+            from utils.generation_utils import _sync_module_clients
+            initialized = _sync_module_clients()
+            reg = get_registry()
+            chat_opts = [(m.label, m.id) for m in reg.list_chat_models()]
+            image_opts = [(m.label, m.id) for m in reg.list_image_models()]
+            main_val = reg.default_main() or (chat_opts[0][1] if chat_opts else None)
+            image_val = reg.default_image() or (image_opts[0][1] if image_opts else None)
+            status = (
+                f"{status_prefix}Loaded {len(reg.providers)} provider(s). "
+                f"Clients: {', '.join(initialized) if initialized else '(none — check API keys)'}. "
+                f"Chat: {len(chat_opts)} | Image: {len(image_opts)}."
+            )
+            return chat_opts, image_opts, main_val, image_val, status
+
+        def apply_config(yaml_text):
+            try:
+                data = yaml.safe_load(yaml_text) or {}
+            except Exception as e:
+                return (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), f"YAML parse error: {e}")
+            try:
+                with open(config_path, "w", encoding="utf-8") as f:
+                    f.write(yaml_text)
+            except Exception as e:
+                return (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), f"Failed to save: {e}")
+            reload_registry(data)
+            chat_opts, image_opts, main_val, image_val, status = _rebuild_dropdowns_after_reload()
+            prov_rows, mod_rows = _registry_to_rows()
+            return (
+                gr.update(choices=chat_opts, value=main_val),
+                gr.update(choices=image_opts, value=image_val),
+                gr.update(choices=image_opts, value=image_val),
+                prov_rows,
+                mod_rows,
+                status,
+            )
+
+        apply_config_btn.click(
+            apply_config,
+            inputs=[yaml_editor],
+            outputs=[main_model_name, image_model_name, refine_image_model, providers_df, models_df, config_status],
+        )
+
+        def load_template():
+            if template_path.exists():
+                try:
+                    return template_path.read_text(encoding="utf-8"), "Template loaded — review and click Apply & Reload to save."
+                except Exception as e:
+                    return gr.update(), f"Failed to read template: {e}"
+            return gr.update(), "Template file missing."
+
+        reset_config_btn.click(load_template, inputs=[], outputs=[yaml_editor, config_status])
+
+        # ---- FORM TAB handlers ----
+        def add_provider_preset(preset_label, current_rows):
+            for label, row in PROVIDER_PRESETS_UI:
+                if label == preset_label:
+                    new = [r for r in (current_rows or []) if any(str(c or "").strip() for c in r)]
+                    new.append(list(row))
+                    return new
+            return current_rows
+
+        add_preset_btn.click(
+            add_provider_preset,
+            inputs=[preset_pick, providers_df],
+            outputs=[providers_df],
+        )
+
+        def add_model_preset(preset_label, current_rows):
+            for label, row in MODEL_PRESETS_UI:
+                if label == preset_label:
+                    new = [r for r in (current_rows or []) if any(str(c or "").strip() for c in r)]
+                    new.append(list(row))
+                    return new
+            return current_rows
+
+        add_model_preset_btn.click(
+            add_model_preset,
+            inputs=[model_preset_pick, models_df],
+            outputs=[models_df],
+        )
+
+        def save_form(providers_rows, models_rows, default_main, default_image):
+            # Gradio Dataframe may hand back a pandas DataFrame or list-of-lists
+            def _to_rows(x):
+                if x is None:
+                    return []
+                if hasattr(x, "values"):
+                    try:
+                        return x.values.tolist()
+                    except Exception:
+                        pass
+                return list(x)
+            providers_rows = _to_rows(providers_rows)
+            models_rows = _to_rows(models_rows)
+            try:
+                data = _rows_to_yaml_dict(providers_rows, models_rows, default_main, default_image)
+                yaml_text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+                with open(config_path, "w", encoding="utf-8") as f:
+                    f.write(yaml_text)
+                reload_registry(data)
+            except Exception as e:
+                return (gr.update(), gr.update(), gr.update(), gr.update(), f"Save failed: {e}")
+            chat_opts, image_opts, main_val, image_val, status = _rebuild_dropdowns_after_reload("Saved. ")
+            return (
+                gr.update(choices=chat_opts, value=main_val),
+                gr.update(choices=image_opts, value=image_val),
+                gr.update(choices=image_opts, value=image_val),
+                yaml_text,
+                status,
+            )
+
+        save_form_btn.click(
+            save_form,
+            inputs=[providers_df, models_df, default_main_input, default_image_input],
+            outputs=[main_model_name, image_model_name, refine_image_model, yaml_editor, config_status],
+        )
 
         # ================================================================
         # FOOTER

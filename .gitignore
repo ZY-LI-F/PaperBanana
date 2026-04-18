@@ -6,3 +6,7 @@ __pycache__/
 .venv/
 data/
 results/
+.env
+.env.local
+.env.*.local
+.claude/

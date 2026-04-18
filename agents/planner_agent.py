@@ -99,6 +99,20 @@ class PlannerAgent(BaseAgent):
             user_prompt += " (do not include figure titles)"
         user_prompt += ":"
 
+        # Language override: force the description (and resulting in-figure text) into a specific language.
+        lang = (data.get("additional_info") or {}).get("figure_language", "")
+        if lang == "zh":
+            user_prompt += (
+                "\n\n[Language Constraint] Write the description in Simplified Chinese, and require "
+                "that ALL text rendered inside the figure (labels, arrows, titles, annotations, legends) "
+                "MUST be in Simplified Chinese. Do NOT use any English in the figure text."
+            )
+        elif lang == "en":
+            user_prompt += (
+                "\n\n[Language Constraint] Write the description in English, and require that ALL text "
+                "rendered inside the figure MUST be in English."
+            )
+
         content_list.append({"type": "text", "text": user_prompt})
 
         response_list = await generation_utils.call_model_with_retry_async(
