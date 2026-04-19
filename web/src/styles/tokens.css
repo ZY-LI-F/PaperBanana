@@ -58,5 +58,10 @@
   --focus-ring-color:  var(--accent-1);
   --focus-ring-width:  2px;
   --focus-ring-offset: 2px;
+
+  /* --- Layout --- */
+  --rail-width: 15rem;
+  --rail-width-collapsed: 4rem;
+  --topbar-height: calc(var(--sp-16) + var(--sp-4));
 }
 
