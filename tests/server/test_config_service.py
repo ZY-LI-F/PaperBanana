@@ -216,9 +216,9 @@ def test_save_config_form_preserves_placeholder_api_key_storage(
 
     data = yaml.safe_load(config_paths["yaml"].read_text(encoding="utf-8"))
     assert data["providers"][0]["api_key"] == f"${{{TEST_ENV_VAR}}}"
-    assert config_paths["env"].read_text(encoding="utf-8") == f'{TEST_ENV_VAR}="env-secret-5678"\n'
+    assert config_paths["env"].read_text(encoding="utf-8") == f'{TEST_ENV_VAR}="env-secret-9999"\n'
     assert reload_spy and reload_spy[0]["providers"][0]["api_key"] == f"${{{TEST_ENV_VAR}}}"
-    assert config_service.list_providers()[0].api_key_masked == "****5678"
+    assert config_service.list_providers()[0].api_key_masked == "****9999"
 
 
 def test_upsert_provider_key_updates_legacy_yaml_value(

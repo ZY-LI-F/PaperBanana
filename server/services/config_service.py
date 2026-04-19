@@ -73,7 +73,11 @@ def save_config_form(
     models_rows: Any,
     defaults: Mapping[str, Any] | None,
 ) -> None:
-    data = _build_form_data(providers_rows, models_rows, defaults)
+    provider_rows = _coerce_rows(providers_rows)
+    model_rows = _coerce_rows(models_rows)
+    current_data = load_config_data()
+    data = _build_form_data(provider_rows, model_rows, defaults, current_data)
+    _apply_env_updates(_placeholder_env_updates(provider_rows, current_data))
     atomic_write_text(config_path(), dump_yaml(data))
     _reload_registry(data)
 
@@ -189,14 +193,36 @@ def _build_form_data(
     providers_rows: Any,
     models_rows: Any,
     defaults: Mapping[str, Any] | None,
+    current_data: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    current_data = load_config_data()
+    if current_data is None:
+        current_data = load_config_data()
     providers = _provider_rows_to_config(
         _coerce_rows(providers_rows),
         _stored_provider_api_keys(current_data),
     )
     _attach_models(providers, _coerce_rows(models_rows), _existing_model_params(current_data))
     return {"providers": providers, "defaults": _normalize_defaults(defaults)}
+
+
+def _apply_env_updates(env_updates: Mapping[str, str]) -> None:
+    for variable, value in env_updates.items():
+        upsert_env_value(variable, value)
+        os.environ[variable] = value
+
+
+def _placeholder_env_updates(
+    rows: list[Any],
+    data: Mapping[str, Any],
+) -> dict[str, str]:
+    variables = _provider_key_variables(data)
+    env_updates: dict[str, str] = {}
+    for row in rows:
+        provider_id, _, _, api_key = _normalized_row(row, 4)
+        variable = variables.get(provider_id)
+        if variable and api_key:
+            env_updates[variable] = api_key
+    return env_updates
 
 
 def _provider_rows_to_config(
@@ -263,6 +289,15 @@ def _stored_provider_api_keys(data: Mapping[str, Any]) -> dict[str, str]:
             if field in legacy_api_keys:
                 stored_api_keys[provider_id] = str(legacy_api_keys.get(field) or "")
     return stored_api_keys
+
+
+def _provider_key_variables(data: Mapping[str, Any]) -> dict[str, str]:
+    variables: dict[str, str] = {}
+    for provider_id, raw_key in _stored_provider_api_keys(data).items():
+        variable = placeholder_name(raw_key)
+        if variable:
+            variables[provider_id] = variable
+    return variables
 
 
 def _normalize_defaults(defaults: Mapping[str, Any] | None) -> dict[str, str]:
