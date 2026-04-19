@@ -23,6 +23,12 @@ from server.services._config_storage import (
 
 
 IMAGE_CAPABILITY = "image"
+LEGACY_PROVIDER_KEY_FIELDS = {
+    "gemini-official": "google_api_key",
+    "openai-official": "openai_api_key",
+    "anthropic-official": "anthropic_api_key",
+    "openrouter": "openrouter_api_key",
+}
 
 
 @dataclass(frozen=True)
@@ -74,13 +80,13 @@ def save_config_form(
 
 def upsert_provider_key(provider_id: str, key: str) -> None:
     data = load_config_data()
-    provider = _find_provider_config(data, provider_id)
-    variable = placeholder_name(provider.get("api_key", ""))
+    config_node, field = _find_provider_key_target(data, provider_id)
+    variable = placeholder_name(config_node.get(field, ""))
     if variable:
         upsert_env_value(variable, key)
         os.environ[variable] = key
     else:
-        provider["api_key"] = key
+        config_node[field] = key
         atomic_write_text(config_path(), dump_yaml(data))
     _reload_registry(data)
 
@@ -184,12 +190,19 @@ def _build_form_data(
     models_rows: Any,
     defaults: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    providers = _provider_rows_to_config(_coerce_rows(providers_rows))
-    _attach_models(providers, _coerce_rows(models_rows), _existing_model_params())
+    current_data = load_config_data()
+    providers = _provider_rows_to_config(
+        _coerce_rows(providers_rows),
+        _stored_provider_api_keys(current_data),
+    )
+    _attach_models(providers, _coerce_rows(models_rows), _existing_model_params(current_data))
     return {"providers": providers, "defaults": _normalize_defaults(defaults)}
 
 
-def _provider_rows_to_config(rows: list[Any]) -> list[dict[str, Any]]:
+def _provider_rows_to_config(
+    rows: list[Any],
+    stored_api_keys: Mapping[str, str],
+) -> list[dict[str, Any]]:
     providers: list[dict[str, Any]] = []
     for row in rows:
         provider_id, provider_type, base_url, api_key = _normalized_row(row, 4)
@@ -198,7 +211,8 @@ def _provider_rows_to_config(rows: list[Any]) -> list[dict[str, Any]]:
         provider: dict[str, Any] = {"id": provider_id, "type": provider_type or "openai"}
         if base_url:
             provider["base_url"] = base_url
-        provider["api_key"] = api_key
+        stored_api_key = stored_api_keys.get(provider_id, "")
+        provider["api_key"] = stored_api_key if placeholder_name(stored_api_key) else api_key
         provider["models"] = []
         providers.append(provider)
     return providers
@@ -223,9 +237,9 @@ def _attach_models(
         providers_by_id[provider_id]["models"].append(model)
 
 
-def _existing_model_params() -> dict[tuple[str, str], dict[str, Any]]:
+def _existing_model_params(data: Mapping[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
     params_by_model: dict[tuple[str, str], dict[str, Any]] = {}
-    for provider in load_config_data().get("providers") or []:
+    for provider in data.get("providers") or []:
         provider_id = str(provider.get("id") or "").strip()
         for raw_model in provider.get("models") or []:
             if not isinstance(raw_model, Mapping):
@@ -235,6 +249,20 @@ def _existing_model_params() -> dict[tuple[str, str], dict[str, Any]]:
             if provider_id and model_name and params:
                 params_by_model[(provider_id, model_name)] = dict(params)
     return params_by_model
+
+
+def _stored_provider_api_keys(data: Mapping[str, Any]) -> dict[str, str]:
+    stored_api_keys: dict[str, str] = {}
+    for provider in data.get("providers") or []:
+        provider_id = str(provider.get("id") or "").strip()
+        if provider_id:
+            stored_api_keys[provider_id] = str(provider.get("api_key") or "")
+    legacy_api_keys = data.get("api_keys") or {}
+    if isinstance(legacy_api_keys, Mapping):
+        for provider_id, field in LEGACY_PROVIDER_KEY_FIELDS.items():
+            if field in legacy_api_keys:
+                stored_api_keys[provider_id] = str(legacy_api_keys.get(field) or "")
+    return stored_api_keys
 
 
 def _normalize_defaults(defaults: Mapping[str, Any] | None) -> dict[str, str]:
@@ -265,11 +293,17 @@ def _normalized_row(row: Any, size: int) -> list[str]:
     return [str(value or "").strip() for value in values[:size]]
 
 
-def _find_provider_config(
+def _find_provider_key_target(
     data: dict[str, Any],
     provider_id: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], str]:
     for provider in data.get("providers") or []:
         if str(provider.get("id") or "").strip() == provider_id:
-            return provider
+            return provider, "api_key"
+    field = LEGACY_PROVIDER_KEY_FIELDS.get(provider_id)
+    if field:
+        api_keys = data.setdefault("api_keys", {})
+        if not isinstance(api_keys, dict):
+            raise TypeError("Config YAML api_keys must contain a mapping")
+        return api_keys, field
     raise ValueError(f"Unknown provider id: {provider_id}")
