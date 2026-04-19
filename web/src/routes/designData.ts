@@ -1,6 +1,11 @@
 import type { BattleGridItem, GalleryImage, LogEntry, StageTimelineItem } from '../components/ui';
 import type { Option } from '../components/ui/shared';
 
+const DESIGN_FIXTURE = {
+  planner: '/design-fixtures/planner-output.svg',
+  stylist: '/design-fixtures/stylist-pass.svg',
+} as const;
+
 export const modelOptions: Option[] = [
   { label: 'OpenAI · gpt-image-1', value: 'openai::gpt-image-1' },
   { label: 'Google · imagen-4', value: 'google::imagen-4' },
@@ -8,13 +13,13 @@ export const modelOptions: Option[] = [
 ];
 
 export const galleryImages: GalleryImage[] = [
-  { id: 'hero', previewLabel: 'Planner Output', subtitle: 'Method-aware composition and emphasis zones', title: 'Candidate A', tone: 'ok' },
-  { id: 'variant', previewLabel: 'Stylist Pass', subtitle: 'Clinical-blue annotation pass with cleaner labels', title: 'Candidate B', tone: 'neutral' },
+  { id: 'hero', src: DESIGN_FIXTURE.planner, subtitle: 'Method-aware composition and emphasis zones', title: 'Candidate A', tone: 'ok' },
+  { id: 'variant', src: DESIGN_FIXTURE.stylist, subtitle: 'Clinical-blue annotation pass with cleaner labels', title: 'Candidate B', tone: 'neutral' },
   { id: 'critic', previewLabel: 'Critic Revision', subtitle: 'Contrast and spacing tightened after review', title: 'Candidate C', tone: 'warn' },
 ];
 
 export const battleItems: BattleGridItem[] = [
-  { elapsedLabel: '12.4 s', id: 'battle-a', model: 'OpenAI · gpt-image-1', note: 'Strong balance between structure and callouts.', previewLabel: 'Image Model A', score: '8.9 / 10', status: 'succeeded', tone: 'ok' },
+  { elapsedLabel: '12.4 s', id: 'battle-a', imageSrc: DESIGN_FIXTURE.planner, model: 'OpenAI · gpt-image-1', note: 'Strong balance between structure and callouts.', previewLabel: 'Image Model A', score: '8.9 / 10', status: 'succeeded', tone: 'ok' },
   { elapsedLabel: '15.8 s', id: 'battle-b', model: 'Google · imagen-4', note: 'Sharper labels, flatter iconography.', previewLabel: 'Image Model B', score: '8.4 / 10', status: 'running', tone: 'neutral' },
   { elapsedLabel: 'Queued', id: 'battle-c', model: 'Fal · flux-pro', note: 'Waiting for visualizer slot.', status: 'queued' },
 ];

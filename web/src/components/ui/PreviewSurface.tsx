@@ -1,4 +1,4 @@
-import { cn, type Tone } from './shared';
+import { cn, getToneStyle, type Tone } from './shared';
 
 type PreviewSurfaceProps = {
   className?: string;
@@ -7,15 +7,11 @@ type PreviewSurfaceProps = {
   tone?: Tone;
 };
 
-const toneColorMap: Record<Tone, string> = {
-  err: 'var(--danger)',
-  neutral: 'var(--accent-2)',
-  ok: 'var(--accent-1)',
-  warn: 'var(--warn)',
-};
+const DEFAULT_TONE_COLOR = 'var(--text-secondary)';
 
 export function PreviewSurface({ className, label, subtitle, tone = 'neutral' }: PreviewSurfaceProps) {
-  const accentColor = toneColorMap[tone];
+  const toneStyle = getToneStyle(tone);
+  const accentColor = typeof toneStyle.color === 'string' ? toneStyle.color : DEFAULT_TONE_COLOR;
 
   return (
     <div className={cn('relative flex h-full flex-col justify-between overflow-hidden bg-subtle px-4 py-4', className)}>
