@@ -214,7 +214,7 @@ async def _run_refine(run_id: str, row: RunRow, control: _RunControl | None) -> 
     if not isinstance(params, RefineParams):
         raise ValueError("missing refine params")
     _update_run(run_id, status="running")
-    stage_id = runs_repo.insert_stage(run_id, StageRow(stage_name="refine", status="running", started_at=_now()))
+    stage_id = runs_repo.upsert_stage(run_id, StageRow(stage_name="refine", status="running", started_at=_now()))
     del stage_id
     result_b64 = await _call_refine(params, row.image_model)
     data = {"edit_prompt": params.edit_prompt, "refined_diagram_base64_jpg": result_b64}
@@ -237,7 +237,7 @@ async def _run_stage_sequence(
         if _cancelled(control):
             _pause_or_cancel(run_id, row.last_stage)
             return data
-        runs_repo.insert_stage(run_id, StageRow(stage_name=spec.name, status="running", started_at=_now()))
+        runs_repo.upsert_stage(run_id, StageRow(stage_name=spec.name, status="running", started_at=_now()))
         log_bus.publish(run_id, "info", f"stage started: {spec.name}", stage=spec.name)
         data = await _execute_stage(processor, data, spec, row.retrieval_setting)
         _snapshot_stage(run_id, spec.name, data)
@@ -334,7 +334,7 @@ def _copy_completed_stages(source: RunRow, target_run_id: str) -> None:
         source_dir = stage_root / stage.stage_name
         if source_dir.is_dir():
             shutil.copytree(source_dir, _run_dir(target_run_id) / "stages" / stage.stage_name, dirs_exist_ok=True)
-        runs_repo.insert_stage(target_run_id, StageRow(stage_name=stage.stage_name, status=stage.status, started_at=stage.started_at, finished_at=stage.finished_at, payload_path=stage.payload_path, image_paths=stage.image_paths, error=stage.error))
+        runs_repo.upsert_stage(target_run_id, StageRow(stage_name=stage.stage_name, status=stage.status, started_at=stage.started_at, finished_at=stage.finished_at, payload_path=stage.payload_path, image_paths=stage.image_paths, error=stage.error))
 
 
 def _build_exp_config(params: GenerateParams, image_model: str | None = None) -> ExpConfig:

@@ -163,6 +163,32 @@ def insert_stage(run_id: str, stage: StageRow) -> int:
     return int(cursor.lastrowid)
 
 
+def upsert_stage(run_id: str, stage: StageRow) -> int:
+    """Insert or update a stage row keyed on (run_id, stage_name).
+
+    Unlike :func:`insert_stage`, this is idempotent for the resume path:
+    stages recorded during a cancelled run can be re-asserted without
+    violating the UNIQUE(run_id, stage_name) constraint.
+    """
+    init_db()
+    values = asdict(stage)
+    values["run_id"] = run_id
+    columns = [column for column in STAGE_COLUMNS if column != "id"]
+    columns_sql = ", ".join(columns)
+    placeholders = ", ".join("?" for _ in columns)
+    update_assignments = ", ".join(
+        f"{col}=excluded.{col}" for col in columns if col not in ("run_id", "stage_name")
+    )
+    params = [values[column] for column in columns]
+    with closing(connect()) as connection, connection:
+        cursor = connection.execute(
+            f"INSERT INTO run_stages ({columns_sql}) VALUES ({placeholders}) "
+            f"ON CONFLICT(run_id, stage_name) DO UPDATE SET {update_assignments}",
+            params,
+        )
+    return int(cursor.lastrowid)
+
+
 def list_stages(run_id: str) -> list[StageRow]:
     init_db()
     columns_sql = ", ".join(STAGE_COLUMNS)
