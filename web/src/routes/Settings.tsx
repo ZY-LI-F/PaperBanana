@@ -1,5 +1,5 @@
-import { RoutePlaceholder } from './RoutePlaceholder';
+import { SettingsScreen } from '../features/settings/SettingsScreen';
 
 export default function SettingsRoute() {
-  return <RoutePlaceholder description="Provider, model, and default-value CRUD lands in T08." eyebrow="T08" title="Settings" />;
+  return <SettingsScreen />;
 }
