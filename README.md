@@ -81,21 +81,37 @@ First download [PaperBananaBench](https://huggingface.co/datasets/dwzhu/PaperBan
     uv pip install -r requirements.txt
     ```
 
+### Run the web app
+
+The default developer workflow is now the FastAPI backend plus the Vite frontend:
+
+```bash
+uvicorn server.main:app
+pnpm --dir web dev
+```
+
+Start the API first, then open the local URL printed by Vite in your browser.
+
 ### Launch PaperBanana
 
-#### Option 1: Gradio Web App (Recommended)
+#### Option 1: Web App (Recommended)
 
 **Try it online — no setup required:**  
 👉 **[PaperBanana on Hugging Face Spaces](https://huggingface.co/spaces/dwzhu/PaperBanana)**
 
-To get started, enter your API key (OpenRouter or Google Gemini), then configure your desired parameters (pipeline mode, number of candidates, aspect ratio, etc.), paste your method section text and figure caption, and click **Generate**.
+To get started locally, run the backend and frontend from the section above, then configure providers and default models in the dedicated **Settings** page before launching jobs from the UI.
 
-You can also run the Gradio app locally:
+#### Option 2: Legacy Gradio Web App (opt-in)
+
+The original Gradio surface now lives at `legacy/app_gradio.py` for one release cycle:
+
 ```bash
-python app.py
+PAPERBANANA_ENABLE_LEGACY_GRADIO=1 python -m legacy.app_gradio
 ```
 
-#### Option 2: Interactive Demo (Streamlit)
+Running `python app.py` now prints a deprecation banner and only defers to the legacy module when `PAPERBANANA_ENABLE_LEGACY_GRADIO=1` is set.
+
+#### Option 3: Interactive Demo (Streamlit)
 The easiest way to launch PaperBanana is via the interactive Streamlit demo:
 ```bash
 streamlit run demo.py
@@ -115,7 +131,7 @@ The web interface provides two main workflows:
 - Select resolution (2K/4K) and aspect ratio.
 - Download the refined high-resolution output.
 
-#### Option 3: Command-Line Interface
+#### Option 4: Command-Line Interface
 You can also run PaperBanana from the command line:
 ```bash
 # Basic usage with default settings
