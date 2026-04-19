@@ -1,5 +1,4 @@
 import { createBrowserRouter, redirect } from 'react-router-dom';
-import { Button } from '../components/ui';
 import AppShell from '../layouts/AppShell';
 import BattleRoute from './Battle';
 import DesignRoute from './Design';
@@ -39,17 +38,8 @@ export const router = createBrowserRouter([
       {
         element: <RunDetailRoute />,
         handle: {
-          actions: () => (
-            <>
-              <Button disabled size="sm" variant="secondary">
-                Resume
-              </Button>
-              <Button disabled size="sm" variant="ghost">
-                Reuse
-              </Button>
-            </>
-          ),
-          crumb: 'Run Detail',
+          crumb: ({ params }) =>
+            params.runId ? `Run ${String(params.runId).slice(0, 8)}` : 'Run Detail',
         },
         path: 'history/:runId',
       },
