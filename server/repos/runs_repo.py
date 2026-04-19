@@ -154,14 +154,10 @@ def insert_stage(run_id: str, stage: StageRow) -> int:
     columns = [column for column in STAGE_COLUMNS if column != "id"]
     columns_sql = ", ".join(columns)
     placeholders = ", ".join("?" for _ in columns)
-    update_assignments = ", ".join(
-        f"{col}=excluded.{col}" for col in columns if col not in ("run_id", "stage_name")
-    )
     params = [values[column] for column in columns]
     with closing(connect()) as connection, connection:
         cursor = connection.execute(
-            f"INSERT INTO run_stages ({columns_sql}) VALUES ({placeholders}) "
-            f"ON CONFLICT(run_id, stage_name) DO UPDATE SET {update_assignments}",
+            f"INSERT INTO run_stages ({columns_sql}) VALUES ({placeholders})",
             params,
         )
     return int(cursor.lastrowid)
