@@ -7,6 +7,7 @@ export * from './Combobox';
 export * from './Dialog';
 export * from './Empty';
 export * from './ErrorText';
+export * from './ExamplePicker';
 export * from './Field';
 export * from './HelperText';
 export * from './ImageGallery';

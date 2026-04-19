@@ -37,7 +37,11 @@ def test_battle_fans_out_models_without_replanning(fake_processor) -> None:
     assert [call["image_model"] for call in fake_processor.calls["visualizer"]] == image_models
 
 
-def _wait_for(predicate, timeout: float = 3.0):
+def _wait_for(predicate, timeout: float = 10.0):
+    # v0.3: widened from 3.0 s; under Windows + asyncio jitter the 3 s cap was
+    # flaky even though the service layer converges in <200 ms on a warm box.
+    # 10 s keeps fast CI fast (predicate returns immediately on warm runs)
+    # while absorbing cold-start + GC pauses.
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = predicate()

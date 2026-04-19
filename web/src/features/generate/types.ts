@@ -62,6 +62,7 @@ export type RunDetailPayload = RunStreamPayload & {
   caption?: string;
   final_image_name?: string | null;
   planner_prompt?: string | null;
+  num_candidates?: number;
   reuse?: Record<string, unknown>;
   stages: RunStagePayload[];
   visualizer_prompt?: string | null;
@@ -79,6 +80,15 @@ export type GenerateStageView = {
 };
 
 export type GenerateGalleryImage = GalleryImage;
+
+export type HeroVariant = {
+  candidateIndex: number;
+  downloadName: string;
+  id: string;
+  label: string;
+  stage: string;
+  url: string;
+};
 
 export type RunEventsState = {
   connectionState: 'closed' | 'connecting' | 'error' | 'open';

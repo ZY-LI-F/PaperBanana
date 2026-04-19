@@ -30,13 +30,17 @@ function seedForm({
 }) {
   const nextMainModel = current.mainModel || defaults.main_model || mainModels[0]?.id || '';
   if (current.imageModels.length) return { ...current, mainModel: nextMainModel };
-  const seededModels = [defaults.image_gen_model, ...imageModels.map((option) => option.id)].filter(Boolean) as string[];
+  const seededModels = [defaults.image_gen_model, ...imageModels.map((option) => option.id)].filter(
+    Boolean
+  ) as string[];
   const uniqueModels = Array.from(new Set(seededModels)).slice(0, 2);
   return { ...current, imageModels: uniqueModels, mainModel: nextMainModel };
 }
 
 function toggleSelection(selected: string[], modelId: string) {
-  return selected.includes(modelId) ? selected.filter((item) => item !== modelId) : [...selected, modelId];
+  return selected.includes(modelId)
+    ? selected.filter((item) => item !== modelId)
+    : [...selected, modelId];
 }
 
 function buildLabelMap(options: ModelOption[]) {
@@ -57,13 +61,32 @@ function resolveValidationError({
   return selectedModels.length < 2 ? '至少选择两个 image-capable 模型才能发起 battle。' : null;
 }
 
-function updateFormField(setForm: Dispatch<SetStateAction<BattleFormValues>>, field: keyof BattleFormValues, value: string | number) {
+function updateFormField(
+  setForm: Dispatch<SetStateAction<BattleFormValues>>,
+  field: keyof BattleFormValues,
+  value: string | number
+) {
   setForm((current) => ({ ...current, [field]: value }));
 }
 
 export default function BattleRoute() {
-  const { defaults, error: settingsError, imageModelOptions, load, mainModelOptions, status } = useSettingsStore();
-  const { cells, error: battleError, isSubmitting, parentRunId, parentStatus, stages, submit } = useBattle();
+  const {
+    defaults,
+    error: settingsError,
+    imageModelOptions,
+    load,
+    mainModelOptions,
+    status,
+  } = useSettingsStore();
+  const {
+    cells,
+    error: battleError,
+    isSubmitting,
+    parentRunId,
+    parentStatus,
+    stages,
+    submit,
+  } = useBattle();
   const [form, setForm] = useState(initialForm);
 
   useEffect(() => {
@@ -74,7 +97,9 @@ export default function BattleRoute() {
 
   useEffect(() => {
     if (status !== 'ready') return;
-    setForm((current) => seedForm({ current, defaults, imageModels: imageModelOptions, mainModels: mainModelOptions }));
+    setForm((current) =>
+      seedForm({ current, defaults, imageModels: imageModelOptions, mainModels: mainModelOptions })
+    );
   }, [defaults, imageModelOptions, mainModelOptions, status]);
 
   const labelMap = buildLabelMap(imageModelOptions);
@@ -95,8 +120,16 @@ export default function BattleRoute() {
         isSubmitting={isSubmitting}
         mainModelOptions={mainModelOptions}
         onFieldChange={(field, value) => updateFormField(setForm, field, value)}
+        onLoadExample={({ caption, methodContent }) =>
+          setForm((current) => ({ ...current, caption, methodContent }))
+        }
         onSubmit={() => void submit({ ...form, modelLabels: labelMap })}
-        onToggleModel={(modelId) => setForm((current) => ({ ...current, imageModels: toggleSelection(current.imageModels, modelId) }))}
+        onToggleModel={(modelId) =>
+          setForm((current) => ({
+            ...current,
+            imageModels: toggleSelection(current.imageModels, modelId),
+          }))
+        }
         parentRunId={parentRunId}
         parentStatus={parentStatus}
         submitDisabled={Boolean(validationError)}

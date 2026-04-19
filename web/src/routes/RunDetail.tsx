@@ -60,9 +60,49 @@ export default function RunDetailRoute() {
         <RunOverview detail={detail} />
       </Card>
 
+      <FinalImageSection detail={detail} />
       <PromptSummary detail={detail} />
       <StageTimeline runId={detail.id} stages={detail.stages} />
     </div>
+  );
+}
+
+function FinalImageSection({ detail }: { detail: HistoryRunDetail }) {
+  const url = detail.finalImageUrl;
+  if (!url) return null;
+  const fileName = `${detail.id}_final.png`;
+  return (
+    <Card
+      subtitle="Selected final candidate for this run. Click the image to view full size, or use Download to save a local copy."
+      title="Final image"
+      actions={
+        <div className="flex items-center gap-2">
+          <a
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-primary hover:bg-subtle"
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open full size
+          </a>
+          <a
+            className="rounded-md bg-accent1 px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
+            href={url}
+            download={fileName}
+          >
+            Download
+          </a>
+        </div>
+      }
+    >
+      <div className="flex justify-center rounded-md border border-border bg-subtle p-4">
+        <img
+          alt={`Final image for run ${detail.id}`}
+          className="max-h-[70vh] max-w-full rounded-md object-contain"
+          src={url}
+        />
+      </div>
+    </Card>
   );
 }
 

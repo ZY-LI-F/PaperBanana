@@ -8,10 +8,10 @@ import {
   type SetStateAction,
 } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Tag } from '../components/ui';
+import { Tabs, Tag } from '../components/ui';
 import { api } from '../lib/api';
 import { GenerateForm } from '../features/generate/GenerateForm';
-import { FinalGallery } from '../features/generate/FinalGallery';
+import HeroGallery from '../features/generate/HeroGallery';
 import { StageTimeline } from '../features/generate/StageTimeline';
 import { createInitialFormState, formReducer } from '../features/generate/formReducer';
 import { useRunEvents } from '../features/generate/hooks/useRunEvents';
@@ -19,13 +19,15 @@ import { useGeneratePrefillStore } from '../features/generate/store';
 import type {
   GenerateFormErrors,
   GenerateFormState,
-  GenerateGalleryImage,
   GenerateStageView,
+  HeroVariant,
   ProviderRecord,
+  RunDetailPayload,
+  RunStagePayload,
   RunStatus,
 } from '../features/generate/types';
 import {
-  buildGallery,
+  buildHeroVariants,
   buildModelOptions,
   createPlannedStages,
   describeError,
@@ -49,7 +51,10 @@ export default function GenerateRoute() {
   const [runId, setRunId] = useState<string | null>(null);
   const [runStatus, setRunStatus] = useState<RunStatus | null>(null);
   const [stages, setStages] = useState<GenerateStageView[]>([]);
-  const [gallery, setGallery] = useState<GenerateGalleryImage[]>([]);
+  const [variants, setVariants] = useState<HeroVariant[]>([]);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [finalImageUrl, setFinalImageUrl] = useState<string | null>(null);
+  const [activeNumCandidates, setActiveNumCandidates] = useState(0);
   const [providers, setProviders] = useState<ProviderRecord[]>([]);
   const [modelLoadError, setModelLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -68,11 +73,8 @@ export default function GenerateRoute() {
   }, [prefill]);
 
   useEffect(() => {
-    void loadModelData(
-      setProviders,
-      setModelLoadError,
-      (mainModel, imageModel) =>
-        dispatch({ imageModel, mainModel, type: 'applyModelDefaults' }),
+    void loadModelData(setProviders, setModelLoadError, (mainModel, imageModel) =>
+      dispatch({ imageModel, mainModel, type: 'applyModelDefaults' })
     );
   }, []);
 
@@ -81,6 +83,7 @@ export default function GenerateRoute() {
     onError: setStreamError,
     onRun: (payload) => {
       const event = parseRunEvent(payload);
+      setFinalImageUrl(event.final_image_url ?? null);
       setRunStatus(event.status);
     },
     onStage: (payload) => {
@@ -95,8 +98,27 @@ export default function GenerateRoute() {
     const fetchKey = `${runId}:${runStatus}`;
     if (fetchedDetailRef.current === fetchKey) return;
     fetchedDetailRef.current = fetchKey;
-    void loadRunDetail(runId, setGallery, setStages, setSubmitError);
+    void loadRunDetail(
+      runId,
+      setActiveNumCandidates,
+      setFinalImageUrl,
+      setStages,
+      setSubmitError,
+      setVariants
+    );
   }, [runId, runStatus]);
+
+  useEffect(() => {
+    if (!runId) {
+      setVariants([]);
+      return;
+    }
+    setVariants(
+      buildHeroVariants(
+        createRunDetailSnapshot(runId, runStatus, finalImageUrl, stages, activeNumCandidates)
+      )
+    );
+  }, [activeNumCandidates, finalImageUrl, runId, runStatus, stages]);
 
   const modelOptions = buildModelOptions(providers);
 
@@ -109,7 +131,8 @@ export default function GenerateRoute() {
             <div>
               <h1 className="m-0 text-2xl font-semibold text-primary">Clinical prompt intake</h1>
               <p className="m-0 text-sm text-secondary">
-                Method text, caption, retrieval settings, model pickers, live stage telemetry, and final artifact gallery.
+                Method text, caption, retrieval settings, model pickers, live stage telemetry, and
+                final artifact gallery.
               </p>
             </div>
           </div>
@@ -121,6 +144,38 @@ export default function GenerateRoute() {
           ) : null}
         </div>
       </section>
+
+      <Tabs
+        items={[
+          {
+            key: 'candidates',
+            label: 'Generated candidates',
+            meta: variants.length > 0 ? String(variants.length) : undefined,
+            content: (
+              <HeroGallery
+                onSelect={setSelectedVariantId}
+                runId={runId}
+                runStatus={runStatus}
+                selectedId={selectedVariantId}
+                variants={variants}
+              />
+            ),
+          },
+          {
+            key: 'stages',
+            label: 'Stage timeline',
+            meta: stages.length > 0 ? String(stages.length) : undefined,
+            content: (
+              <StageTimeline
+                runStatus={runStatus}
+                stages={stages}
+                streamError={streamError}
+                streamState={streamState}
+              />
+            ),
+          },
+        ]}
+      />
 
       <GenerateForm
         errors={errors}
@@ -138,30 +193,23 @@ export default function GenerateRoute() {
         onSubmit={(event) =>
           handleSubmit(event, {
             form,
-            setErrors,
-            setGallery,
-            setIsSubmitting,
-            setRunId,
-            setRunStatus,
-            setStages,
-            setStreamError,
-            setSubmitError,
             resetFetchedDetail: () => {
               fetchedDetailRef.current = null;
             },
+            setActiveNumCandidates,
+            setErrors,
+            setFinalImageUrl,
+            setIsSubmitting,
+            setRunId,
+            setRunStatus,
+            setSelectedVariantId,
+            setStages,
+            setStreamError,
+            setSubmitError,
+            setVariants,
           })
         }
       />
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)]">
-        <StageTimeline
-          runStatus={runStatus}
-          stages={stages}
-          streamError={streamError}
-          streamState={streamState}
-        />
-        <FinalGallery images={gallery} runId={runId} runStatus={runStatus} />
-      </div>
     </div>
   );
 }
@@ -169,7 +217,7 @@ export default function GenerateRoute() {
 async function loadModelData(
   setProviders: (providers: ProviderRecord[]) => void,
   setModelLoadError: (error: string | null) => void,
-  applyDefaults: (mainModel: string, imageModel: string) => void,
+  applyDefaults: (mainModel: string, imageModel: string) => void
 ) {
   try {
     const [providersPayload, defaultsPayload] = await Promise.all([
@@ -187,13 +235,17 @@ async function loadModelData(
 
 async function loadRunDetail(
   runId: string,
-  setGallery: (images: GenerateGalleryImage[]) => void,
+  setActiveNumCandidates: (value: number) => void,
+  setFinalImageUrl: (url: string | null) => void,
   setStages: Dispatch<SetStateAction<GenerateStageView[]>>,
   setSubmitError: (error: string | null) => void,
+  setVariants: (variants: HeroVariant[]) => void
 ) {
   try {
     const detail = parseRunDetail(await api.runs.detail(runId));
-    setGallery(buildGallery(detail));
+    setActiveNumCandidates(detail.num_candidates ?? 0);
+    setFinalImageUrl(detail.final_image_url ?? null);
+    setVariants(buildHeroVariants(detail));
     setStages((current) => detail.stages.reduce(mergeStageAccumulator, current));
   } catch (error) {
     setSubmitError(describeError(error));
@@ -202,7 +254,7 @@ async function loadRunDetail(
 
 function mergeStageAccumulator(
   current: GenerateStageView[],
-  stage: ReturnType<typeof parseStageEvent>,
+  stage: ReturnType<typeof parseStageEvent>
 ) {
   return mergeStageEvent(current, stage);
 }
@@ -212,40 +264,49 @@ async function handleSubmit(
   handlers: {
     form: GenerateFormState;
     resetFetchedDetail: () => void;
+    setActiveNumCandidates: (value: number) => void;
     setErrors: (errors: GenerateFormErrors) => void;
-    setGallery: (images: GenerateGalleryImage[]) => void;
+    setFinalImageUrl: (url: string | null) => void;
     setIsSubmitting: (value: boolean) => void;
     setRunId: (runId: string | null) => void;
     setRunStatus: (status: RunStatus | null) => void;
+    setSelectedVariantId: (value: string | null) => void;
     setStages: (stages: GenerateStageView[]) => void;
     setStreamError: (error: string | null) => void;
     setSubmitError: (error: string | null) => void;
-  },
+    setVariants: (variants: HeroVariant[]) => void;
+  }
 ) {
   const {
     form,
     resetFetchedDetail,
+    setActiveNumCandidates,
     setErrors,
-    setGallery,
+    setFinalImageUrl,
     setIsSubmitting,
     setRunId,
     setRunStatus,
+    setSelectedVariantId,
     setStages,
     setStreamError,
     setSubmitError,
+    setVariants,
   } = handlers;
   event.preventDefault();
   const nextErrors = validateGenerateForm(form);
   setErrors(nextErrors);
   if (Object.keys(nextErrors).length) return;
 
-  setGallery([]);
+  setActiveNumCandidates(form.numCandidates);
+  setFinalImageUrl(null);
   setIsSubmitting(true);
   setRunId(null);
   setRunStatus('queued');
+  setSelectedVariantId(null);
   setStages(createPlannedStages(form.expMode, form.maxCriticRounds));
   setStreamError(null);
   setSubmitError(null);
+  setVariants([]);
   resetFetchedDetail();
 
   try {
@@ -272,4 +333,34 @@ async function handleSubmit(
   } finally {
     setIsSubmitting(false);
   }
+}
+
+function createRunDetailSnapshot(
+  runId: string,
+  runStatus: RunStatus | null,
+  finalImageUrl: string | null,
+  stages: GenerateStageView[],
+  activeNumCandidates: number
+): RunDetailPayload {
+  return {
+    battles: [],
+    final_image_url: finalImageUrl,
+    id: runId,
+    num_candidates: activeNumCandidates,
+    stages: stages.map(toStagePayload),
+    status: runStatus ?? 'queued',
+  };
+}
+
+function toStagePayload(stage: GenerateStageView): RunStagePayload {
+  return {
+    error: stage.error,
+    finished_at: stage.finishedAt,
+    image_names: [],
+    image_urls: stage.imageUrls,
+    payload: stage.rawPayload,
+    stage_name: stage.name,
+    started_at: stage.startedAt,
+    status: stage.status,
+  };
 }

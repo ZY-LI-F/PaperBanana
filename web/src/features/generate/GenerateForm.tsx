@@ -4,6 +4,7 @@ import {
   Card,
   Combobox,
   ErrorText,
+  ExamplePicker,
   Field,
   HelperText,
   Label,
@@ -14,10 +15,6 @@ import {
 } from '../../components/ui';
 import {
   ASPECT_RATIO_OPTIONS,
-  EXAMPLE_CAPTION,
-  EXAMPLE_KEY,
-  EXAMPLE_METHOD,
-  EXAMPLE_OPTIONS,
   FIGURE_LANGUAGE_OPTIONS,
   FIGURE_SIZE_OPTIONS,
   PIPELINE_DESCRIPTIONS,
@@ -34,10 +31,7 @@ type GenerateFormProps = {
   isSubmitting: boolean;
   mainModelOptions: { hint?: string; label: string; value: string }[];
   modelLoadError?: string | null;
-  onChange: <K extends keyof GenerateFormState>(
-    field: K,
-    value: GenerateFormState[K],
-  ) => void;
+  onChange: <K extends keyof GenerateFormState>(field: K, value: GenerateFormState[K]) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   submitError?: string | null;
 };
@@ -122,17 +116,8 @@ function RunConfigSection({
         <HelperText>{PIPELINE_DESCRIPTIONS[form.expMode]}</HelperText>
       </Field>
 
-      <ConfigSelectRow
-        form={form}
-        isBusy={isBusy}
-        onChange={onChange}
-      />
-      <ConfigNumberRow
-        errors={errors}
-        form={form}
-        isBusy={isBusy}
-        onChange={onChange}
-      />
+      <ConfigSelectRow form={form} isBusy={isBusy} onChange={onChange} />
+      <ConfigNumberRow errors={errors} form={form} isBusy={isBusy} onChange={onChange} />
       <ConfigFigureRow form={form} isBusy={isBusy} onChange={onChange} />
       <ModelInputs
         errors={errors}
@@ -163,7 +148,14 @@ function PromptInputsSection({
 }) {
   return (
     <section className="space-y-4">
-      <ExampleRow form={form} isBusy={isBusy} onChange={onChange} />
+      <ExamplePicker
+        disabled={isBusy}
+        initialLocale="zh"
+        onLoad={({ caption, methodContent }) => {
+          onChange('methodContent', methodContent);
+          onChange('caption', caption);
+        }}
+      />
       <MethodField errors={errors} form={form} isBusy={isBusy} onChange={onChange} />
       <CaptionField errors={errors} form={form} isBusy={isBusy} onChange={onChange} />
 
@@ -255,9 +247,7 @@ function ConfigNumberRow({
           value={form.maxCriticRounds}
           onChangeValue={(value) => onChange('maxCriticRounds', value)}
         />
-        {errors.maxCriticRounds ? (
-          <ErrorText>{errors.maxCriticRounds}</ErrorText>
-        ) : null}
+        {errors.maxCriticRounds ? <ErrorText>{errors.maxCriticRounds}</ErrorText> : null}
       </Field>
     </div>
   );
@@ -346,52 +336,6 @@ function ModelInputs({
   );
 }
 
-function ExampleRow({
-  form,
-  isBusy,
-  onChange,
-}: {
-  form: GenerateFormState;
-  isBusy: boolean;
-  onChange: GenerateFormProps['onChange'];
-}) {
-  return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <Field>
-        <Label htmlFor="methodExample">Load example (method)</Label>
-        <Select
-          disabled={isBusy}
-          id="methodExample"
-          options={EXAMPLE_OPTIONS}
-          value={form.methodContent === EXAMPLE_METHOD ? EXAMPLE_KEY : 'none'}
-          onChange={(event) =>
-            onChange(
-              'methodContent',
-              event.currentTarget.value === EXAMPLE_KEY ? EXAMPLE_METHOD : '',
-            )
-          }
-        />
-      </Field>
-
-      <Field>
-        <Label htmlFor="captionExample">Load example (caption)</Label>
-        <Select
-          disabled={isBusy}
-          id="captionExample"
-          options={EXAMPLE_OPTIONS}
-          value={form.caption === EXAMPLE_CAPTION ? EXAMPLE_KEY : 'none'}
-          onChange={(event) =>
-            onChange(
-              'caption',
-              event.currentTarget.value === EXAMPLE_KEY ? EXAMPLE_CAPTION : '',
-            )
-          }
-        />
-      </Field>
-    </div>
-  );
-}
-
 function MethodField({
   errors,
   form,
@@ -418,9 +362,7 @@ function MethodField({
       {errors.methodContent ? (
         <ErrorText>{errors.methodContent}</ErrorText>
       ) : (
-        <HelperText>
-          Paste the method section or load the PaperBanana example.
-        </HelperText>
+        <HelperText>Paste the method section or load a catalogue example.</HelperText>
       )}
     </Field>
   );

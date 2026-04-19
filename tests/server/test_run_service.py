@@ -76,9 +76,10 @@ def test_cancel_marks_run_paused_and_stops_before_next_stage(
     assert row is not None
     assert row.last_stage == "planner"
     assert [stage.stage_name for stage in list_stages(run_id)] == ["retriever", "planner"]
+    _wait_for(lambda: run_id not in run_service._RUNTIME)
 
 
-def _wait_for(predicate, timeout: float = 3.0):
+def _wait_for(predicate, timeout: float = 5.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         value = predicate()

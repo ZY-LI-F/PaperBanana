@@ -1,4 +1,4 @@
-import { EXAMPLE_CAPTION, EXAMPLE_METHOD } from './constants';
+import { EXAMPLES } from '../../data/examples';
 import type { GenerateFormState, GeneratePrefill } from './types';
 
 type FormAction =
@@ -18,26 +18,29 @@ type FormAction =
     };
 
 export function createInitialFormState(): GenerateFormState {
+  const defaultExample = EXAMPLES[0];
+
+  if (!defaultExample) {
+    throw new Error('Generate form requires at least one example.');
+  }
+
   return {
     aspectRatio: '21:9',
-    caption: EXAMPLE_CAPTION,
+    caption: defaultExample.caption_zh,
     expMode: 'demo_full',
     figureLanguage: '',
     figureSize: '7-9cm',
     imageModel: '',
     mainModel: '',
-    maxCriticRounds: 3,
-    methodContent: EXAMPLE_METHOD,
-    numCandidates: 10,
+    maxCriticRounds: 1,
+    methodContent: defaultExample.method_content_zh,
+    numCandidates: 1,
     parentRunId: '',
     retrievalSetting: 'auto',
   };
 }
 
-export function formReducer(
-  state: GenerateFormState,
-  action: FormAction,
-): GenerateFormState {
+export function formReducer(state: GenerateFormState, action: FormAction): GenerateFormState {
   if (action.type === 'setField') {
     return { ...state, [action.field]: action.value };
   }
@@ -47,10 +50,7 @@ export function formReducer(
   return applyModelDefaults(state, action.mainModel, action.imageModel);
 }
 
-function applyPrefill(
-  state: GenerateFormState,
-  prefill: GeneratePrefill,
-): GenerateFormState {
+function applyPrefill(state: GenerateFormState, prefill: GeneratePrefill): GenerateFormState {
   const nextState = { ...state };
   Object.entries(prefill).forEach(([field, value]) => {
     if (value !== undefined) {
@@ -63,7 +63,7 @@ function applyPrefill(
 function applyModelDefaults(
   state: GenerateFormState,
   mainModel: string,
-  imageModel: string,
+  imageModel: string
 ): GenerateFormState {
   return {
     ...state,

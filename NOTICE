@@ -1,0 +1,21 @@
+PaperBanana
+Copyright 2026 The PaperBanana contributors
+
+This repository is distributed under the Apache License 2.0.
+See the LICENSE file for the full license text.
+
+Provenance and attribution:
+
+1. This repository contains and extends work published as PaperBanana:
+   https://github.com/dwzhu-pku/PaperBanana
+
+2. The upstream PaperBanana project states that its original version was
+   open-sourced under Google Research as PaperVizAgent:
+   https://github.com/google-research/papervizagent
+
+3. When redistributing this repository or derivative works, retain the
+   LICENSE file, this NOTICE file, and any existing copyright,
+   attribution, and author information present in the source tree.
+
+4. Third-party project names, paper titles, logos, linked datasets, and
+   other external assets remain the property of their respective owners.

@@ -1,4 +1,5 @@
 import { ApiError } from '../../lib/api';
+export { buildHeroVariants, downloadVariants } from './heroVariants';
 import type { Option, RunStatus, StageStatus } from '../../components/ui/shared';
 import type {
   GenerateFormErrors,
@@ -16,18 +17,10 @@ import type {
 
 const CRITIC_MODE = 'demo_planner_critic';
 const FULL_MODE = 'demo_full';
-const PROMPT_FIELD_PATTERN =
-  /prompt|desc|suggestion|caption|content|intent/i;
-const TERMINAL_STATUSES: RunStatus[] = [
-  'cancelled',
-  'failed',
-  'paused',
-  'succeeded',
-];
+const PROMPT_FIELD_PATTERN = /prompt|desc|suggestion|caption|content|intent/i;
+const TERMINAL_STATUSES: RunStatus[] = ['cancelled', 'failed', 'paused', 'succeeded'];
 
-export function validateGenerateForm(
-  form: GenerateFormState,
-): GenerateFormErrors {
+export function validateGenerateForm(form: GenerateFormState): GenerateFormErrors {
   const errors: GenerateFormErrors = {};
   if (!form.methodContent.trim()) errors.methodContent = 'Method content is required.';
   if (!form.caption.trim()) errors.caption = 'Figure caption is required.';
@@ -46,10 +39,7 @@ export function isTerminalRunStatus(status: string | null | undefined): status i
   return TERMINAL_STATUSES.includes(status as RunStatus);
 }
 
-export function createPlannedStages(
-  expMode: string,
-  maxCriticRounds: number,
-): GenerateStageView[] {
+export function createPlannedStages(expMode: string, maxCriticRounds: number): GenerateStageView[] {
   return stageNames(expMode, maxCriticRounds).map((name) => ({
     imageUrls: [],
     name,
@@ -60,7 +50,7 @@ export function createPlannedStages(
 
 export function mergeStageEvent(
   stages: GenerateStageView[],
-  event: RunStagePayload,
+  event: RunStagePayload
 ): GenerateStageView[] {
   const nextStage = toStageView(event);
   const index = stages.findIndex((stage) => stage.name === nextStage.name);
@@ -71,10 +61,12 @@ export function mergeStageEvent(
   return updated;
 }
 
+/**
+ * @deprecated Prefer `buildHeroVariants`, which preserves stage-level artifacts
+ * and final candidates for the Generate route hero gallery.
+ */
 export function buildGallery(detail: RunDetailPayload): GenerateGalleryImage[] {
-  const latestStage = [...detail.stages]
-    .reverse()
-    .find((stage) => stage.image_urls.length > 0);
+  const latestStage = [...detail.stages].reverse().find((stage) => stage.image_urls.length > 0);
   const urls = dedupeUrls(detail.final_image_url, latestStage?.image_urls ?? []);
 
   return urls.map((src, index) => ({
@@ -123,35 +115,20 @@ export function normalizePrefill(payload: unknown): GeneratePrefill | null {
     expMode: pickString(source, 'exp_mode', 'expMode'),
     figureLanguage: pickString(source, 'figure_language', 'figureLanguage'),
     figureSize: pickString(source, 'figure_size', 'figureSize'),
-    imageModel: pickString(
-      source,
-      'image_model',
-      'imageModel',
-      'image_gen_model',
-    ),
+    imageModel: pickString(source, 'image_model', 'imageModel', 'image_gen_model'),
     mainModel: pickString(source, 'main_model', 'mainModel'),
     methodContent: pickString(source, 'method_content', 'methodContent'),
     parentRunId: pickString(source, 'parent_run_id', 'parentRunId'),
-    retrievalSetting: pickString(
-      source,
-      'retrieval_setting',
-      'retrievalSetting',
-    ),
+    retrievalSetting: pickString(source, 'retrieval_setting', 'retrievalSetting'),
   };
 
   const numCandidates = pickNumber(source, 'num_candidates', 'numCandidates');
-  const maxCriticRounds = pickNumber(
-    source,
-    'max_critic_rounds',
-    'maxCriticRounds',
-  );
+  const maxCriticRounds = pickNumber(source, 'max_critic_rounds', 'maxCriticRounds');
 
   if (numCandidates !== null) prefill.numCandidates = numCandidates;
   if (maxCriticRounds !== null) prefill.maxCriticRounds = maxCriticRounds;
 
-  return Object.values(prefill).some((value) => value !== '')
-    ? prefill
-    : null;
+  return Object.values(prefill).some((value) => value !== '') ? prefill : null;
 }
 
 export function parseRunCreateResponse(payload: unknown): { runId: string } {
@@ -173,6 +150,7 @@ export function parseRunDetail(payload: unknown): RunDetailPayload {
     final_image_name: pickOptionalString(root, 'final_image_name'),
     final_image_url: pickOptionalString(root, 'final_image_url'),
     id,
+    num_candidates: pickNumber(root, 'num_candidates'),
     planner_prompt: pickOptionalString(root, 'planner_prompt'),
     reuse: toNullableRecord(root.reuse),
     stages: parseStages(root.stages),
@@ -225,7 +203,7 @@ export function describeError(error: unknown): string {
 function stageNames(expMode: string, maxCriticRounds: number): string[] {
   const criticRounds = Array.from(
     { length: Math.max(maxCriticRounds, 0) },
-    (_, index) => `critic_${index}`,
+    (_, index) => `critic_${index}`
   );
   if (expMode === CRITIC_MODE) {
     return ['retriever', 'planner', 'visualizer', ...criticRounds];
@@ -249,10 +227,7 @@ function toStageView(event: RunStagePayload): GenerateStageView {
   };
 }
 
-function dedupeUrls(
-  finalUrl: string | null | undefined,
-  stageUrls: string[],
-): string[] {
+function dedupeUrls(finalUrl: string | null | undefined, stageUrls: string[]): string[] {
   const seen = new Set<string>();
   return [finalUrl, ...stageUrls].flatMap((value) => {
     if (!value || seen.has(value)) return [];
@@ -297,10 +272,7 @@ function parseModels(payload: unknown): ProviderModel[] {
   });
 }
 
-function createOptions(
-  providers: ProviderRecord[],
-  kind: 'image' | 'text',
-): Option[] {
+function createOptions(providers: ProviderRecord[], kind: 'image' | 'text'): Option[] {
   return providers.flatMap((provider) =>
     provider.models.flatMap((model) =>
       includeModel(model, kind)
@@ -311,16 +283,14 @@ function createOptions(
               value: model.id,
             },
           ]
-        : [],
-    ),
+        : []
+    )
   );
 }
 
 function includeModel(model: ProviderModel, kind: 'image' | 'text'): boolean {
   const isImage =
-    model.kind === 'image' ||
-    model.capability === 'image' ||
-    model.capabilities.includes('image');
+    model.kind === 'image' || model.capability === 'image' || model.capabilities.includes('image');
   return kind === 'image' ? isImage : !isImage;
 }
 
@@ -346,28 +316,16 @@ function normalizeRunStatus(status: string): RunStatus {
     'running',
     'succeeded',
   ];
-  return candidates.includes(status as RunStatus)
-    ? (status as RunStatus)
-    : 'queued';
+  return candidates.includes(status as RunStatus) ? (status as RunStatus) : 'queued';
 }
 
 function normalizeStageStatus(status: string): StageStatus {
-  const candidates: StageStatus[] = [
-    'failed',
-    'paused',
-    'pending',
-    'running',
-    'succeeded',
-  ];
-  return candidates.includes(status as StageStatus)
-    ? (status as StageStatus)
-    : 'pending';
+  const candidates: StageStatus[] = ['failed', 'paused', 'pending', 'running', 'succeeded'];
+  return candidates.includes(status as StageStatus) ? (status as StageStatus) : 'pending';
 }
 
 function humanizeKey(value: string): string {
-  return value
-    .replaceAll('_', ' ')
-    .replace(/\b\w/g, (segment) => segment.toUpperCase());
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (segment) => segment.toUpperCase());
 }
 
 function toRecord(payload: unknown): Record<string, unknown> {
@@ -376,9 +334,7 @@ function toRecord(payload: unknown): Record<string, unknown> {
     : {};
 }
 
-function toNullableRecord(
-  payload: unknown,
-): Record<string, unknown> | null {
+function toNullableRecord(payload: unknown): Record<string, unknown> | null {
   return typeof payload === 'object' && payload !== null
     ? (payload as Record<string, unknown>)
     : null;
@@ -391,10 +347,7 @@ function pickString(root: Record<string, unknown>, ...keys: string[]): string {
   return '';
 }
 
-function pickOptionalString(
-  root: Record<string, unknown>,
-  ...keys: string[]
-): string | null {
+function pickOptionalString(root: Record<string, unknown>, ...keys: string[]): string | null {
   const value = pickString(root, ...keys);
   return value || null;
 }

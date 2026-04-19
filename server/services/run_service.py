@@ -465,6 +465,11 @@ def _find_stage(run_id: str, stage_name: str) -> StageRow | None:
 def _update_run(run_id: str, **fields: Any) -> None:
     runs_repo.update_run(run_id, **fields)
     _write_run_snapshot(run_id)
+    # Wake SSE subscribers on terminal transitions so the frontend sees a
+    # fresh `run` event, refetches detail, and renders the final gallery.
+    status = fields.get("status")
+    if status in {"succeeded", "failed", "cancelled", "paused"}:
+        log_bus.publish(run_id, "info", f"run {status}")
 
 
 def _write_run_snapshot(run_id: str) -> None:
