@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from PIL import Image
 
 import server.settings as settings
+from server.main import app
 from server.services import run_service
 
 
@@ -38,6 +40,18 @@ def fake_processor(
     run_service._RUNTIME.clear()
     yield factory
     run_service._RUNTIME.clear()
+
+
+@pytest.fixture()
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+@pytest.fixture()
+async def api_client(isolated_results: Path) -> AsyncClient:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
 
 
 class _FakeFactory:
