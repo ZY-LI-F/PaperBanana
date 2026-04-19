@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useMatches, type UIMatch } from 'react-router-dom';
-import { Breadcrumb, Button, Tag } from '../components/ui';
+import { Breadcrumb, Tag } from '../components/ui';
 import { cn } from '../components/ui/shared';
 
 type ShellHandle = {
@@ -48,8 +48,7 @@ function useCompactRail() {
 export default function AppShell() {
   const matches = useMatches();
   const isCompact = useCompactRail();
-  const [isPinnedCollapsed, setIsPinnedCollapsed] = useState(false);
-  const isCollapsed = isCompact || isPinnedCollapsed;
+  const isCollapsed = isCompact;
   const breadcrumbItems = matches
     .map((match) => ({ label: resolveCrumb(match), pathname: match.pathname }))
     .filter((item): item is { label: string; pathname: string } => Boolean(item.label))
@@ -68,9 +67,6 @@ export default function AppShell() {
               <p className={cn('m-0 text-2xs font-semibold uppercase tracking-[var(--tracking-eyebrow)] text-muted', isCollapsed && 'sr-only')}>PaperBanana</p>
               <p className={cn('m-0 text-lg font-semibold text-primary', isCollapsed && 'sr-only')}>Shell</p>
             </div>
-            <Button size="sm" variant="ghost" onClick={() => setIsPinnedCollapsed((value) => !value)}>
-              {isCollapsed ? '›' : '‹'}
-            </Button>
           </div>
 
           <nav className="mt-6 flex flex-1 flex-col gap-2" aria-label="Primary">

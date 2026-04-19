@@ -1,6 +1,7 @@
 import { Empty } from './Empty';
+import { PreviewSurface } from './PreviewSurface';
 import { RunStatusChip } from './RunStatusChip';
-import { cn } from './shared';
+import { cn, type Tone } from './shared';
 
 export type BattleGridItem = {
   elapsedLabel?: string;
@@ -8,8 +9,10 @@ export type BattleGridItem = {
   imageSrc?: string;
   model: string;
   note?: string;
+  previewLabel?: string;
   score?: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'paused' | 'cancelled';
+  tone?: Tone;
 };
 
 type BattleGridProps = {
@@ -36,6 +39,8 @@ export function BattleGrid({ className, items }: BattleGridProps) {
           <div className="aspect-[4/3] bg-subtle">
             {item.imageSrc ? (
               <img alt={item.model} className="h-full w-full object-cover" loading="lazy" src={item.imageSrc} />
+            ) : item.previewLabel ? (
+              <PreviewSurface label={item.previewLabel} subtitle={item.note} tone={item.tone} />
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted">Awaiting candidate</div>
             )}

@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Badge } from './Badge';
 import { Empty } from './Empty';
 import { Modal } from './Modal';
+import { PreviewSurface } from './PreviewSurface';
 import { cn, type Tone } from './shared';
 
 export type GalleryImage = {
   id: string;
-  src: string;
+  previewLabel?: string;
+  src?: string;
   subtitle?: string;
   title: string;
   tone?: Tone;
@@ -36,7 +38,11 @@ export function ImageGallery({ className, images }: ImageGalleryProps) {
             onClick={() => setActiveImageId(image.id)}
           >
             <div className="aspect-[4/3] overflow-hidden bg-subtle">
-              <img alt={image.title} className="h-full w-full object-cover" loading="lazy" src={image.src} />
+              {image.src ? (
+                <img alt={image.title} className="h-full w-full object-cover" loading="lazy" src={image.src} />
+              ) : (
+                <PreviewSurface label={image.previewLabel ?? image.title} subtitle={image.subtitle} tone={image.tone} />
+              )}
             </div>
             <div className="space-y-2 px-4 py-4">
               <div className="flex items-center justify-between gap-3">
@@ -51,7 +57,13 @@ export function ImageGallery({ className, images }: ImageGalleryProps) {
       <Modal description={activeImage?.subtitle} onClose={() => setActiveImageId(null)} open={Boolean(activeImage)} size="lg" title={activeImage?.title}>
         {activeImage ? (
           <div className="overflow-hidden rounded-lg border border-border bg-subtle">
-            <img alt={activeImage.title} className="h-auto w-full object-contain" src={activeImage.src} />
+            {activeImage.src ? (
+              <img alt={activeImage.title} className="h-auto w-full object-contain" src={activeImage.src} />
+            ) : (
+              <div className="aspect-[4/3]">
+                <PreviewSurface label={activeImage.previewLabel ?? activeImage.title} subtitle={activeImage.subtitle} tone={activeImage.tone} />
+              </div>
+            )}
           </div>
         ) : null}
       </Modal>
