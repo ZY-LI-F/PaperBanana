@@ -221,6 +221,50 @@ def test_save_config_form_preserves_placeholder_api_key_storage(
     assert config_service.list_providers()[0].api_key_masked == "****9999"
 
 
+def test_save_config_form_ignores_masked_placeholder_api_key(
+    config_paths: dict[str, Path],
+    reload_spy: list[dict],
+) -> None:
+    providers_rows = [["env-provider", "anthropic", "", "****5678"]]
+    models_rows = [["env-provider", "image-model", "image", ""]]
+
+    config_service.save_config_form(
+        providers_rows,
+        models_rows,
+        {"image_gen_model": "env-provider::image-model"},
+    )
+
+    assert config_paths["env"].read_text(encoding="utf-8") == f'{TEST_ENV_VAR}="env-secret-5678"\n'
+    assert reload_spy and reload_spy[0]["providers"][0]["api_key"] == f"${{{TEST_ENV_VAR}}}"
+    assert config_service.list_providers()[0].api_key_masked == "****5678"
+
+
+def test_save_config_form_does_not_update_env_when_yaml_write_fails(
+    config_paths: dict[str, Path],
+    reload_spy: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_write = config_service.atomic_write_text
+    yaml_path = config_paths["yaml"]
+
+    def fail_yaml_write(path: Path, text: str) -> None:
+        if path == yaml_path:
+            raise OSError("yaml write failed")
+        original_write(path, text)
+
+    monkeypatch.setattr(config_service, "atomic_write_text", fail_yaml_write)
+
+    with pytest.raises(OSError, match="yaml write failed"):
+        config_service.save_config_form(
+            [["env-provider", "anthropic", "", "env-secret-9999"]],
+            [["env-provider", "image-model", "image", ""]],
+            {"image_gen_model": "env-provider::image-model"},
+        )
+
+    assert config_paths["env"].read_text(encoding="utf-8") == f'{TEST_ENV_VAR}="env-secret-5678"\n'
+    assert reload_spy == []
+
+
 def test_upsert_provider_key_updates_legacy_yaml_value(
     legacy_config_paths: dict[str, Path],
     reload_spy: list[dict],

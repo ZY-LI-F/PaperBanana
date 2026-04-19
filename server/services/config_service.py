@@ -76,9 +76,10 @@ def save_config_form(
     provider_rows = _coerce_rows(providers_rows)
     model_rows = _coerce_rows(models_rows)
     current_data = load_config_data()
+    env_updates = _placeholder_env_updates(provider_rows, current_data, read_env_values())
     data = _build_form_data(provider_rows, model_rows, defaults, current_data)
-    _apply_env_updates(_placeholder_env_updates(provider_rows, current_data))
     atomic_write_text(config_path(), dump_yaml(data))
+    _apply_env_updates(env_updates)
     _reload_registry(data)
 
 
@@ -214,15 +215,30 @@ def _apply_env_updates(env_updates: Mapping[str, str]) -> None:
 def _placeholder_env_updates(
     rows: list[Any],
     data: Mapping[str, Any],
+    env_values: Mapping[str, str],
 ) -> dict[str, str]:
-    variables = _provider_key_variables(data)
+    stored_api_keys = _stored_provider_api_keys(data)
     env_updates: dict[str, str] = {}
     for row in rows:
         provider_id, _, _, api_key = _normalized_row(row, 4)
-        variable = variables.get(provider_id)
-        if variable and api_key:
+        stored_api_key = stored_api_keys.get(provider_id, "")
+        variable = placeholder_name(stored_api_key)
+        if variable and api_key and not _is_masked_placeholder_value(
+            api_key,
+            stored_api_key,
+            env_values,
+        ):
             env_updates[variable] = api_key
     return env_updates
+
+
+def _is_masked_placeholder_value(
+    submitted_value: str,
+    stored_api_key: str,
+    env_values: Mapping[str, str],
+) -> bool:
+    current_value = resolve_config_key(stored_api_key, env_values)
+    return bool(current_value) and submitted_value == mask_api_key(current_value)
 
 
 def _provider_rows_to_config(
@@ -289,15 +305,6 @@ def _stored_provider_api_keys(data: Mapping[str, Any]) -> dict[str, str]:
             if field in legacy_api_keys:
                 stored_api_keys[provider_id] = str(legacy_api_keys.get(field) or "")
     return stored_api_keys
-
-
-def _provider_key_variables(data: Mapping[str, Any]) -> dict[str, str]:
-    variables: dict[str, str] = {}
-    for provider_id, raw_key in _stored_provider_api_keys(data).items():
-        variable = placeholder_name(raw_key)
-        if variable:
-            variables[provider_id] = variable
-    return variables
 
 
 def _normalize_defaults(defaults: Mapping[str, Any] | None) -> dict[str, str]:
