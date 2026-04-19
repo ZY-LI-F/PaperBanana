@@ -76,8 +76,9 @@ def save_config_form(
     provider_rows = _coerce_rows(providers_rows)
     model_rows = _coerce_rows(models_rows)
     current_data = load_config_data()
-    env_updates = _placeholder_env_updates(provider_rows, current_data, read_env_values())
-    data = _build_form_data(provider_rows, model_rows, defaults, current_data)
+    env_values = read_env_values()
+    env_updates = _placeholder_env_updates(provider_rows, current_data, env_values)
+    data = _build_form_data(provider_rows, model_rows, defaults, current_data, env_values)
     atomic_write_text(config_path(), dump_yaml(data))
     _apply_env_updates(env_updates)
     _reload_registry(data)
@@ -195,12 +196,16 @@ def _build_form_data(
     models_rows: Any,
     defaults: Mapping[str, Any] | None,
     current_data: Mapping[str, Any] | None = None,
+    env_values: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     if current_data is None:
         current_data = load_config_data()
+    if env_values is None:
+        env_values = read_env_values()
     providers = _provider_rows_to_config(
         _coerce_rows(providers_rows),
         _stored_provider_api_keys(current_data),
+        env_values,
     )
     _attach_models(providers, _coerce_rows(models_rows), _existing_model_params(current_data))
     return {"providers": providers, "defaults": _normalize_defaults(defaults)}
@@ -223,7 +228,7 @@ def _placeholder_env_updates(
         provider_id, _, _, api_key = _normalized_row(row, 4)
         stored_api_key = stored_api_keys.get(provider_id, "")
         variable = placeholder_name(stored_api_key)
-        if variable and api_key and not _is_masked_placeholder_value(
+        if variable and api_key and not _is_masked_stored_value(
             api_key,
             stored_api_key,
             env_values,
@@ -232,7 +237,7 @@ def _placeholder_env_updates(
     return env_updates
 
 
-def _is_masked_placeholder_value(
+def _is_masked_stored_value(
     submitted_value: str,
     stored_api_key: str,
     env_values: Mapping[str, str],
@@ -244,6 +249,7 @@ def _is_masked_placeholder_value(
 def _provider_rows_to_config(
     rows: list[Any],
     stored_api_keys: Mapping[str, str],
+    env_values: Mapping[str, str],
 ) -> list[dict[str, Any]]:
     providers: list[dict[str, Any]] = []
     for row in rows:
@@ -254,10 +260,22 @@ def _provider_rows_to_config(
         if base_url:
             provider["base_url"] = base_url
         stored_api_key = stored_api_keys.get(provider_id, "")
-        provider["api_key"] = stored_api_key if placeholder_name(stored_api_key) else api_key
+        provider["api_key"] = _submitted_api_key(api_key, stored_api_key, env_values)
         provider["models"] = []
         providers.append(provider)
     return providers
+
+
+def _submitted_api_key(
+    submitted_api_key: str,
+    stored_api_key: str,
+    env_values: Mapping[str, str],
+) -> str:
+    if placeholder_name(stored_api_key):
+        return stored_api_key
+    if _is_masked_stored_value(submitted_api_key, stored_api_key, env_values):
+        return stored_api_key
+    return submitted_api_key
 
 
 def _attach_models(

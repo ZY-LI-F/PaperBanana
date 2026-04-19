@@ -239,6 +239,26 @@ def test_save_config_form_ignores_masked_placeholder_api_key(
     assert config_service.list_providers()[0].api_key_masked == "****5678"
 
 
+def test_save_config_form_ignores_masked_inline_api_key(
+    config_paths: dict[str, Path],
+    reload_spy: list[dict],
+) -> None:
+    providers_rows = [["inline-provider", "openai", "https://updated.example/v1", "****1234"]]
+    models_rows = [["inline-provider", "chat-model", "chat", ""]]
+
+    config_service.save_config_form(
+        providers_rows,
+        models_rows,
+        {"main_model": "inline-provider::chat-model"},
+    )
+
+    data = yaml.safe_load(config_paths["yaml"].read_text(encoding="utf-8"))
+    assert data["providers"][0]["api_key"] == "inline-secret-1234"
+    assert data["providers"][0]["base_url"] == "https://updated.example/v1"
+    assert reload_spy and reload_spy[0]["providers"][0]["api_key"] == "inline-secret-1234"
+    assert config_service.list_providers()[0].api_key_masked == "****1234"
+
+
 def test_save_config_form_does_not_update_env_when_yaml_write_fails(
     config_paths: dict[str, Path],
     reload_spy: list[dict],
