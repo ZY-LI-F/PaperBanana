@@ -3,6 +3,14 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from server.routers import (
+    battle_router,
+    history_router,
+    logs_router,
+    refine_router,
+    runs_router,
+    settings_router,
+)
 from server.settings import VERSION
 
 
@@ -16,14 +24,12 @@ app.add_middleware(
     allow_credentials=False,
 )
 
-# TODO T05: mount runs router
-# app.include_router(runs_router, prefix="/api")
-
-# TODO T05: mount history router
-# TODO T05: mount settings router
-# TODO T05: mount logs router
-# TODO T05: mount refine router
-# TODO T05: mount battle router
+app.include_router(runs_router)
+app.include_router(history_router)
+app.include_router(settings_router)
+app.include_router(logs_router)
+app.include_router(refine_router)
+app.include_router(battle_router)
 
 
 @app.get("/api/health")
