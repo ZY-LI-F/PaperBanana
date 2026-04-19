@@ -10,3 +10,6 @@ results/
 .env.local
 .env.*.local
 .claude/
+web/node_modules
+web/dist
+results/paperbanana.db
