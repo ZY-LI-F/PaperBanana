@@ -67,7 +67,3 @@ def _examples_dir() -> Path:
     if configured is None:
         configured = settings.RUNS_DIR
     return Path(configured).parent / "examples"
-
-
-_prepare_examples_store()
-

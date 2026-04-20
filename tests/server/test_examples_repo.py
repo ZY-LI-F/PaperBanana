@@ -134,3 +134,38 @@ def test_search_empty_query_returns_default_order(isolated_results) -> None:
     assert [hits[0]["id"], hits[1]["id"]] == [high["id"], low["id"]]
     assert hits[0]["score"] == 0.0
     assert hits[1]["score"] == 0.0
+
+
+def test_update_rejects_empty_required_field(isolated_results) -> None:
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        row = examples_repo.create_example(connection, BASE_ROW)
+        with pytest.raises(ValueError):
+            examples_repo.update_example(connection, row["id"], {"title_en": ""})
+
+
+def test_update_rejects_null_required_field(isolated_results) -> None:
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        row = examples_repo.create_example(connection, BASE_ROW)
+        with pytest.raises(ValueError):
+            examples_repo.update_example(connection, row["id"], {"title_en": None})
+
+
+def test_update_partial_non_required_field_ok(isolated_results) -> None:
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        row = examples_repo.create_example(connection, BASE_ROW)
+        updated = examples_repo.update_example(
+            connection, row["id"], {"suggested_aspect_ratio": "16:9"}
+        )
+
+    assert updated is not None
+    assert updated["suggested_aspect_ratio"] == "16:9"
+    assert updated["title_en"] == BASE_ROW["title_en"]

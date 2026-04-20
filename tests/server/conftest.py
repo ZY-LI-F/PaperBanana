@@ -49,9 +49,17 @@ def anyio_backend() -> str:
 
 @pytest.fixture()
 async def api_client(isolated_results: Path) -> AsyncClient:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
-        yield client
+    # Fire app startup handlers AFTER isolated_results has monkeypatched
+    # settings.db_path / RUNS_DIR, so seed/prepare runs against the tmp dir
+    # and never touches the default results/.
+    del isolated_results
+    await app.router.startup()
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+            yield client
+    finally:
+        await app.router.shutdown()
 
 
 class _FakeFactory:

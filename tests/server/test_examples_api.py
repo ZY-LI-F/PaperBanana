@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import io
+import sqlite3
 
 import pytest
 from PIL import Image
+
+from server.repos import examples_repo
 
 
 BASE_BODY = {
@@ -136,8 +139,164 @@ async def test_search_endpoint_priority_boost(api_client, isolated_results) -> N
     assert hits[0]["score"] > hits[1]["score"]
 
 
+@pytest.mark.anyio
+async def test_patch_empty_title_returns_400(api_client, isolated_results) -> None:
+    del isolated_results
+    rows = (await api_client.get("/api/examples")).json()
+    response = await api_client.patch(
+        f"/api/examples/{rows[0]['id']}", json={"title_en": ""}
+    )
+    assert response.status_code == 400
+    assert "title_en" in response.json().get("detail", "")
+
+
+@pytest.mark.anyio
+async def test_patch_null_required_field_returns_400(api_client, isolated_results) -> None:
+    del isolated_results
+    rows = (await api_client.get("/api/examples")).json()
+    response = await api_client.patch(
+        f"/api/examples/{rows[0]['id']}", json={"title_en": None}
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.anyio
+async def test_patch_priority_still_422(api_client, isolated_results) -> None:
+    del isolated_results
+    rows = (await api_client.get("/api/examples")).json()
+    response = await api_client.patch(
+        f"/api/examples/{rows[0]['id']}", json={"priority": 4}
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_upload_image_rolls_back_temp_on_db_failure(
+    api_client, isolated_results, monkeypatch
+) -> None:
+    rows = (await api_client.get("/api/examples")).json()
+    example_id = rows[0]["id"]
+    original_image_path = rows[0].get("image_path")
+
+    def _boom(*args, **kwargs):
+        raise sqlite3.DatabaseError("injected failure")
+
+    monkeypatch.setattr(examples_repo, "set_image_path", _boom)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        await api_client.post(
+            f"/api/examples/{example_id}/image",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+
+    examples_dir = isolated_results / "examples"
+    if examples_dir.exists():
+        leftover = list(examples_dir.iterdir())
+        assert all(p.suffix != ".tmp" for p in leftover), leftover
+        assert all(p.stem != example_id for p in leftover), leftover
+
+    refetched = await api_client.get(f"/api/examples/{example_id}")
+    assert refetched.status_code == 200
+    assert refetched.json().get("image_path") == original_image_path
+
+
+@pytest.mark.anyio
+async def test_upload_image_replaces_old_extension_atomically(
+    api_client, isolated_results
+) -> None:
+    rows = (await api_client.get("/api/examples")).json()
+    example_id = rows[0]["id"]
+
+    first = await api_client.post(
+        f"/api/examples/{example_id}/image",
+        files={"file": ("a.png", _png_bytes(), "image/png")},
+    )
+    assert first.status_code == 200
+
+    second = await api_client.post(
+        f"/api/examples/{example_id}/image",
+        files={"file": ("a.jpg", _jpeg_bytes(), "image/jpeg")},
+    )
+    assert second.status_code == 200
+    assert second.json()["image_path"].endswith(".jpg")
+
+    examples_dir = isolated_results / "examples"
+    siblings = {p.name for p in examples_dir.iterdir()}
+    assert f"{example_id}.jpg" in siblings
+    assert f"{example_id}.png" not in siblings
+    assert not any(name.endswith(".tmp") for name in siblings), siblings
+
+
+@pytest.mark.anyio
+async def test_delete_leaves_no_file_behind_even_if_unlink_races(
+    api_client, isolated_results, monkeypatch
+) -> None:
+    rows = (await api_client.get("/api/examples")).json()
+    example_id = rows[0]["id"]
+
+    upload = await api_client.post(
+        f"/api/examples/{example_id}/image",
+        files={"file": ("a.png", _png_bytes(), "image/png")},
+    )
+    assert upload.status_code == 200
+
+    import pathlib
+
+    original_unlink = pathlib.Path.unlink
+
+    def _raise_missing(self, *args, **kwargs):
+        if self.name == f"{example_id}.png":
+            raise FileNotFoundError(str(self))
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "unlink", _raise_missing, raising=False)
+
+    deleted = await api_client.delete(f"/api/examples/{example_id}")
+    assert deleted.status_code == 204
+
+    refetched = await api_client.get(f"/api/examples/{example_id}")
+    assert refetched.status_code == 404
+
+
+def test_import_main_has_no_side_effects(tmp_path, monkeypatch) -> None:
+    """Importing server.main must not touch disk — writes only happen on startup."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, pathlib; "
+        "results = pathlib.Path(sys.argv[1]); "
+        "import server.settings as s; "
+        "s.db_path = lambda: results / 'paperbanana.db'; "
+        "s.RUNS_DIR = results / 'runs'; "
+        "import server.main; "  # noqa: unused
+        "print('RESULTS_EXISTS=' + str(results.exists()))"
+    )
+    target = tmp_path / "results"
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(target)],
+        capture_output=True,
+        text=True,
+        cwd=str(pathlib_project_root()),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "RESULTS_EXISTS=False" in result.stdout, result.stdout
+
+
+def pathlib_project_root():
+    import pathlib
+    return pathlib.Path(__file__).resolve().parents[2]
+
+
 def _png_bytes() -> bytes:
     image = Image.new("RGB", (2, 2), color=(10, 120, 200))
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _jpeg_bytes() -> bytes:
+    image = Image.new("RGB", (2, 2), color=(240, 30, 60))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG")
     return buffer.getvalue()

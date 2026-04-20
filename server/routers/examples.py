@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+import os
 import sqlite3
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +15,8 @@ import server.settings as settings
 from server.db import connect, init_db
 from server.repos import examples_repo
 from server.seeds.examples_seed import seed_if_empty
+
+_log = logging.getLogger(__name__)
 
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -96,16 +101,22 @@ async def get_example(id: str) -> ExampleOut:
 
 @router.post("", response_model=ExampleOut, status_code=201)
 async def create_example(body: ExampleCreate) -> ExampleOut:
-    with _open_connection() as connection, connection:
-        row = examples_repo.create_example(connection, body.model_dump())
+    try:
+        with _open_connection() as connection, connection:
+            row = examples_repo.create_example(connection, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return _to_example_out(row)
 
 
 @router.patch("/{id}", response_model=ExampleOut)
 async def update_example(id: str, body: ExampleUpdate) -> ExampleOut:
     patch = body.model_dump(exclude_unset=True)
-    with _open_connection() as connection, connection:
-        row = examples_repo.update_example(connection, id, patch)
+    try:
+        with _open_connection() as connection, connection:
+            row = examples_repo.update_example(connection, id, patch)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if row is None:
         raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
     return _to_example_out(row)
@@ -113,26 +124,61 @@ async def update_example(id: str, body: ExampleUpdate) -> ExampleOut:
 
 @router.delete("/{id}", status_code=204)
 async def delete_example(id: str) -> Response:
-    with _open_connection() as connection, connection:
-        row = examples_repo.get_example(connection, id)
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
-        _delete_example_image(row.get("image_path"))
-        examples_repo.delete_example(connection, id)
+    with _open_connection() as connection:
+        with connection:
+            row = examples_repo.get_example(connection, id)
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
+            examples_repo.delete_example(connection, id)
+    # DB commit succeeded; FS cleanup is best-effort — do not roll back the
+    # delete if the image file is already gone or locked.
+    _safe_unlink_image(row.get("image_path"))
     return Response(status_code=204)
 
 
 @router.post("/{id}/image", response_model=ExampleOut)
 async def upload_example_image(id: str, file: UploadFile = File(...)) -> ExampleOut:
-    with _open_connection() as connection, connection:
-        row = examples_repo.get_example(connection, id)
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
-        extension = _extension_for_upload(file)
-        data = await _read_upload_bytes(file)
-        image_path = _write_example_image(id, extension, data)
-        _remove_previous_image(row.get("image_path"), image_path)
-        updated = examples_repo.set_image_path(connection, id, image_path)
+    extension = _extension_for_upload(file)
+    data = await _read_upload_bytes(file)
+    final_relative = (Path("examples") / f"{id}.{extension}").as_posix()
+    final_path = _results_root() / final_relative
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp = tempfile.NamedTemporaryFile(
+        delete=False,
+        dir=str(final_path.parent),
+        suffix=".tmp",
+    )
+    tmp_path = Path(tmp.name)
+    try:
+        try:
+            tmp.write(data)
+        finally:
+            tmp.close()
+
+        prior_path: str | None = None
+        with _open_connection() as connection:
+            with connection:
+                prior_row = examples_repo.get_example(connection, id)
+                if prior_row is None:
+                    raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
+                prior_path = prior_row.get("image_path")
+                updated = examples_repo.set_image_path(connection, id, final_relative)
+        # DB commit succeeded — promote the temp file atomically.
+        os.replace(tmp_path, final_path)
+        tmp_path = None  # os.replace consumed it
+    except Exception:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
+
+    # Clean up any prior image that had a different extension.
+    if prior_path and prior_path != final_relative:
+        _safe_unlink_image(prior_path)
+
     if updated is None:
         raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
     return _to_example_out(updated)
@@ -177,27 +223,16 @@ async def _read_upload_bytes(file: UploadFile) -> bytes:
     return data
 
 
-def _write_example_image(id: str, extension: str, data: bytes) -> str:
-    relative_path = Path("examples") / f"{id}.{extension}"
-    target_path = _results_root() / relative_path
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    target_path.write_bytes(data)
-    return relative_path.as_posix()
-
-
-def _remove_previous_image(previous_path: str | None, current_path: str) -> None:
-    if not previous_path or previous_path == current_path:
-        return
-    _delete_example_image(previous_path)
-
-
-def _delete_example_image(image_path: str | None) -> None:
+def _safe_unlink_image(image_path: str | None) -> None:
+    """Best-effort filesystem cleanup — never raises."""
     if not image_path:
         return
     try:
         (_results_root() / image_path).unlink()
     except FileNotFoundError:
         return
+    except OSError as exc:
+        _log.warning("failed to unlink example image %s: %s", image_path, exc)
 
 
 def _media_type_for_path(file_path: Path) -> str:

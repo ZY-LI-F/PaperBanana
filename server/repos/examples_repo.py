@@ -79,6 +79,8 @@ def update_example(connection, id: str, patch: dict[str, Any]) -> dict[str, Any]
         return current
 
     payload = _prepare_patch(patch)
+    merged = {**current, **payload}
+    _ensure_required_fields(merged)
     payload["updated_at"] = _now_iso()
     assignments = ", ".join(f"{column} = ?" for column in payload)
     params = [payload[column] for column in payload]
