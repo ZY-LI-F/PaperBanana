@@ -38,7 +38,7 @@ export const router = createBrowserRouter([
       {
         element: <RunDetailRoute />,
         handle: {
-          crumb: ({ params }) =>
+          crumb: ({ params }: { params: Record<string, string | undefined> }) =>
             params.runId ? `Run ${String(params.runId).slice(0, 8)}` : 'Run Detail',
         },
         path: 'history/:runId',
@@ -47,6 +47,11 @@ export const router = createBrowserRouter([
         element: <LogsRoute />,
         handle: { crumb: 'Logs' },
         path: 'logs',
+      },
+      {
+        handle: { crumb: '示例库 / Examples' },
+        lazy: async () => ({ Component: (await import('./Examples')).default }),
+        path: 'examples',
       },
       {
         element: <SettingsRoute />,

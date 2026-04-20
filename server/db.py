@@ -58,8 +58,27 @@ _DDL_STATEMENTS = (
         error TEXT
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS examples (
+        id TEXT PRIMARY KEY,
+        discipline TEXT NOT NULL,
+        title_en TEXT NOT NULL,
+        title_zh TEXT NOT NULL,
+        method_content_en TEXT NOT NULL,
+        method_content_zh TEXT NOT NULL,
+        caption_en TEXT NOT NULL,
+        caption_zh TEXT NOT NULL,
+        suggested_aspect_ratio TEXT,
+        image_path TEXT,
+        priority INTEGER NOT NULL DEFAULT 2,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK (priority IN (1,2,3))
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_run_stages_run_id ON run_stages(run_id)",
+    "CREATE INDEX IF NOT EXISTS idx_examples_priority_created ON examples(priority DESC, created_at DESC)",
 )
 
 
