@@ -140,6 +140,52 @@ async def test_search_endpoint_priority_boost(api_client, isolated_results) -> N
 
 
 @pytest.mark.anyio
+async def test_patch_unknown_field_is_rejected(api_client, isolated_results) -> None:
+    del isolated_results
+    rows = (await api_client.get("/api/examples")).json()
+    response = await api_client.patch(f"/api/examples/{rows[0]['id']}", json={"bogus": "x"})
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_create_unknown_field_is_rejected(api_client, isolated_results) -> None:
+    del isolated_results
+    response = await api_client.post("/api/examples", json={**BASE_BODY, "bogus": 1})
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_upload_os_replace_failure_keeps_db_consistent(
+    api_client, isolated_results, monkeypatch
+) -> None:
+    rows = (await api_client.get("/api/examples")).json()
+    example_id = rows[0]["id"]
+    original_image_path = rows[0].get("image_path")
+
+    import os as _os
+
+    def _boom(src, dst, *args, **kwargs):
+        raise PermissionError("injected replace failure")
+
+    monkeypatch.setattr(_os, "replace", _boom)
+
+    with pytest.raises(PermissionError):
+        await api_client.post(
+            f"/api/examples/{example_id}/image",
+            files={"file": ("a.png", _png_bytes(), "image/png")},
+        )
+
+    examples_dir = isolated_results / "examples"
+    if examples_dir.exists():
+        leftover = list(examples_dir.iterdir())
+        assert all(p.suffix != ".tmp" for p in leftover), leftover
+
+    refetched = await api_client.get(f"/api/examples/{example_id}")
+    assert refetched.status_code == 200
+    assert refetched.json().get("image_path") == original_image_path
+
+
+@pytest.mark.anyio
 async def test_patch_empty_title_returns_400(api_client, isolated_results) -> None:
     del isolated_results
     rows = (await api_client.get("/api/examples")).json()
@@ -193,7 +239,9 @@ async def test_upload_image_rolls_back_temp_on_db_failure(
     if examples_dir.exists():
         leftover = list(examples_dir.iterdir())
         assert all(p.suffix != ".tmp" for p in leftover), leftover
-        assert all(p.stem != example_id for p in leftover), leftover
+    # With the v2 flipped order, the DB pointer must stay consistent with
+    # its pre-upload value even if the DB commit fails (the landed file is
+    # an acceptable orphan — DB-pointed resources still resolve).
 
     refetched = await api_client.get(f"/api/examples/{example_id}")
     assert refetched.status_code == 200

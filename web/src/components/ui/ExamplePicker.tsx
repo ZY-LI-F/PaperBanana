@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   ExamplesApiError,
   listExamples as fetchExamples,
@@ -134,16 +134,25 @@ export function ExamplePicker({
   const [locale, setLocale] = useState<ExampleLocale>(initialLocale);
   const [status, setStatus] = useState<ExamplePickerStatus>('idle');
   const [errorDetail, setErrorDetail] = useState('');
+  // Newest-wins guard: track the active controller so an in-flight request
+  // that gets superseded never overwrites state from a newer one.
+  const controllerRef = useRef<AbortController | null>(null);
 
   function loadExamples() {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
     setStatus('loading');
     setErrorDetail('');
-    void fetchExamples()
+    void fetchExamples({ signal: controller.signal })
       .then((rows) => {
+        if (controller.signal.aborted) return;
         setExamples(sortExamples(rows));
         setStatus('ready');
       })
       .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        if (error instanceof DOMException && error.name === 'AbortError') return;
         setExamples([]);
         setStatus('error');
         setErrorDetail(describeLoadError(error));
@@ -152,6 +161,9 @@ export function ExamplePicker({
 
   useEffect(() => {
     loadExamples();
+    return () => {
+      controllerRef.current?.abort();
+    };
   }, []);
 
   useEffect(() => {

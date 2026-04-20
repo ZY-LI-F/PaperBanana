@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 import server.settings as settings
 from server.db import connect, init_db
@@ -47,6 +47,8 @@ class ExampleOut(BaseModel):
 
 
 class ExampleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     discipline: str
     title_en: str
     title_zh: str
@@ -59,6 +61,8 @@ class ExampleCreate(BaseModel):
 
 
 class ExampleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     discipline: str | None = None
     title_en: str | None = None
     title_zh: str | None = None
@@ -138,6 +142,15 @@ async def delete_example(id: str) -> Response:
 
 @router.post("/{id}/image", response_model=ExampleOut)
 async def upload_example_image(id: str, file: UploadFile = File(...)) -> ExampleOut:
+    # Atomicity story (v2 — flipped):
+    #   1. Write upload to a same-dir temp file.
+    #   2. Check the DB row exists (read-only, no commit yet).
+    #   3. os.replace(tmp, final) — atomic; if it fails, DB is untouched
+    #      and the prior file is still in place.
+    #   4. Commit DB pointer change.
+    # If step 4 fails, at worst we leak one orphan file (the new content
+    # sitting at final_path under the old extension) — far better than a
+    # dangling DB pointer to a missing file.
     extension = _extension_for_upload(file)
     data = await _read_upload_bytes(file)
     final_relative = (Path("examples") / f"{id}.{extension}").as_posix()
@@ -149,24 +162,30 @@ async def upload_example_image(id: str, file: UploadFile = File(...)) -> Example
         dir=str(final_path.parent),
         suffix=".tmp",
     )
-    tmp_path = Path(tmp.name)
+    tmp_path: Path | None = Path(tmp.name)
     try:
         try:
             tmp.write(data)
         finally:
             tmp.close()
 
-        prior_path: str | None = None
+        # Pre-check existence WITHOUT mutating the DB.
         with _open_connection() as connection:
-            with connection:
-                prior_row = examples_repo.get_example(connection, id)
-                if prior_row is None:
-                    raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
-                prior_path = prior_row.get("image_path")
-                updated = examples_repo.set_image_path(connection, id, final_relative)
-        # DB commit succeeded — promote the temp file atomically.
+            prior_row = examples_repo.get_example(connection, id)
+        if prior_row is None:
+            raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
+        prior_path = prior_row.get("image_path")
+
+        # Publish the new file first. If this raises, the DB is untouched
+        # and the old file is still the one on disk.
         os.replace(tmp_path, final_path)
         tmp_path = None  # os.replace consumed it
+
+        # Now commit the DB pointer. If this fails we leak one orphan file,
+        # but the DB stays consistent with the old pointer.
+        with _open_connection() as connection:
+            with connection:
+                updated = examples_repo.set_image_path(connection, id, final_relative)
     except Exception:
         if tmp_path is not None:
             try:

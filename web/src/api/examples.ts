@@ -95,8 +95,8 @@ async function request<T>(path: string, init?: JsonInit, query?: QueryParams): P
   return payload as T;
 }
 
-export function listExamples(): Promise<ExampleRow[]> {
-  return request<ExampleRow[]>('/api/examples');
+export function listExamples(opts?: { signal?: AbortSignal }): Promise<ExampleRow[]> {
+  return request<ExampleRow[]>('/api/examples', opts?.signal ? { signal: opts.signal } : undefined);
 }
 
 export function searchExamples(query: string, topK = 10): Promise<ExampleSearchHit[]> {
