@@ -60,6 +60,13 @@ export default function ExamplesRoute() {
       const saved = draft.id
         ? await updateExample(draft.id, payload)
         : await createExample(payload);
+      // Persist the saved id onto draft BEFORE the image upload, so that
+      // if the upload fails the user's retry hits updateExample on the
+      // same row instead of POSTing a duplicate.
+      if (!draft.id) {
+        setDraft((current) => ({ ...current, id: saved.id }));
+        setEditorIntent('edit');
+      }
       if (imageFile) await uploadExampleImage(saved.id, imageFile);
       await refreshExamples();
       closeEditor();

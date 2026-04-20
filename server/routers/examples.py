@@ -4,6 +4,7 @@ import logging
 import os
 import sqlite3
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +15,6 @@ from pydantic import BaseModel, ConfigDict
 import server.settings as settings
 from server.db import connect, init_db
 from server.repos import examples_repo
-from server.seeds.examples_seed import seed_if_empty
 
 _log = logging.getLogger(__name__)
 
@@ -142,18 +142,17 @@ async def delete_example(id: str) -> Response:
 
 @router.post("/{id}/image", response_model=ExampleOut)
 async def upload_example_image(id: str, file: UploadFile = File(...)) -> ExampleOut:
-    # Atomicity story (v2 — flipped):
-    #   1. Write upload to a same-dir temp file.
-    #   2. Check the DB row exists (read-only, no commit yet).
-    #   3. os.replace(tmp, final) — atomic; if it fails, DB is untouched
-    #      and the prior file is still in place.
-    #   4. Commit DB pointer change.
-    # If step 4 fails, at worst we leak one orphan file (the new content
-    # sitting at final_path under the old extension) — far better than a
-    # dangling DB pointer to a missing file.
+    # Atomicity story (v3 — unique filenames):
+    # Each upload writes to a fresh, never-referenced path
+    # `examples/{id}-{token}.{ext}`. `os.replace` therefore cannot overwrite
+    # any currently-served file, so the prior image keeps serving live
+    # traffic until the DB commit flips the pointer. If the DB commit fails
+    # we leak one orphan file; the DB stays consistent with the old pointer
+    # and the old bytes.
     extension = _extension_for_upload(file)
     data = await _read_upload_bytes(file)
-    final_relative = (Path("examples") / f"{id}.{extension}").as_posix()
+    token = uuid.uuid4().hex[:8]
+    final_relative = (Path("examples") / f"{id}-{token}.{extension}").as_posix()
     final_path = _results_root() / final_relative
     final_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -176,13 +175,15 @@ async def upload_example_image(id: str, file: UploadFile = File(...)) -> Example
             raise HTTPException(status_code=404, detail=f"unknown example id: {id}")
         prior_path = prior_row.get("image_path")
 
-        # Publish the new file first. If this raises, the DB is untouched
-        # and the old file is still the one on disk.
+        # Publish to a fresh path. `final_path` is guaranteed not to exist
+        # (uuid token collisions are negligible), so this cannot overwrite
+        # live bytes.
         os.replace(tmp_path, final_path)
         tmp_path = None  # os.replace consumed it
 
         # Now commit the DB pointer. If this fails we leak one orphan file,
-        # but the DB stays consistent with the old pointer.
+        # but the DB stays consistent with the prior pointer AND the prior
+        # bytes (the prior file was not touched).
         with _open_connection() as connection:
             with connection:
                 updated = examples_repo.set_image_path(connection, id, final_relative)
@@ -194,7 +195,7 @@ async def upload_example_image(id: str, file: UploadFile = File(...)) -> Example
                 pass
         raise
 
-    # Clean up any prior image that had a different extension.
+    # DB commit succeeded — best-effort cleanup of the prior file.
     if prior_path and prior_path != final_relative:
         _safe_unlink_image(prior_path)
 
@@ -216,11 +217,11 @@ async def get_example_image(id: str) -> FileResponse:
 
 
 def _open_connection() -> sqlite3.Connection:
+    # Seed is seeded once by the FastAPI startup hook — do NOT re-run it on
+    # every request: that creates a race between startup and early traffic
+    # and adds TOCTOU risk between count-check and insert.
     init_db()
-    connection = connect()
-    with connection:
-        seed_if_empty(connection)
-    return connection
+    return connect()
 
 
 def _to_example_out(row: dict) -> ExampleOut:

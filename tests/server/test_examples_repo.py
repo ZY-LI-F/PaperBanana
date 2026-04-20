@@ -156,6 +156,23 @@ def test_update_rejects_null_required_field(isolated_results) -> None:
             examples_repo.update_example(connection, row["id"], {"title_en": None})
 
 
+def test_seed_if_empty_is_race_safe(isolated_results) -> None:
+    """With INSERT OR IGNORE, two back-to-back calls on a fresh DB must not collide."""
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        first = seed_if_empty(connection)
+        second = seed_if_empty(connection)
+        third = seed_if_empty(connection)
+        count = connection.execute("SELECT COUNT(*) AS count FROM examples").fetchone()["count"]
+
+    assert first == 6
+    assert second == 0
+    assert third == 0
+    assert count == 6
+
+
 def test_update_partial_non_required_field_ok(isolated_results) -> None:
     del isolated_results
     init_db()

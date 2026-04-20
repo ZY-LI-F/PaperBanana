@@ -33,20 +33,18 @@ DEFAULT_PRIORITY = 2
 
 
 def seed_if_empty(connection: sqlite3.Connection) -> int:
-    row = connection.execute("SELECT COUNT(*) AS count FROM examples").fetchone()
-    existing_count = int(row["count"] if row is not None else 0)
-    if existing_count:
-        return 0
-
+    # Race-safe: INSERT OR IGNORE skips rows whose primary key already
+    # exists, so concurrent callers never collide. Return value is the
+    # number of rows that were actually inserted this call.
     timestamp = now_iso()
     params = [_seed_params(item, timestamp) for item in SEED_EXAMPLES]
     placeholders = ", ".join("?" for _ in INSERT_COLUMNS)
     columns_sql = ", ".join(INSERT_COLUMNS)
-    connection.executemany(
-        f"INSERT INTO examples ({columns_sql}) VALUES ({placeholders})",
+    cursor = connection.executemany(
+        f"INSERT OR IGNORE INTO examples ({columns_sql}) VALUES ({placeholders})",
         params,
     )
-    return len(params)
+    return int(cursor.rowcount or 0)
 
 
 def now_iso() -> str:

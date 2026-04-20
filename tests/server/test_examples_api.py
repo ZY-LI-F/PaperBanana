@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import sqlite3
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -74,7 +75,9 @@ async def test_delete_removes_image_file(api_client, isolated_results) -> None:
         files={"file": ("a.png", png_bytes, "image/png")},
     )
     assert upload.status_code == 200
-    image_path = isolated_results / "examples" / f"{example_id}.png"
+    image_rel = upload.json()["image_path"]
+    assert image_rel is not None
+    image_path = isolated_results / image_rel
     assert image_path.is_file()
 
     deleted = await api_client.delete(f"/api/examples/{example_id}")
@@ -95,7 +98,9 @@ async def test_image_upload_and_serve_roundtrip(api_client, isolated_results) ->
         files={"file": ("a.png", png_bytes, "image/png")},
     )
     assert upload.status_code == 200
-    assert upload.json()["image_path"] == f"examples/{example_id}.png"
+    image_rel = upload.json()["image_path"]
+    assert image_rel.startswith(f"examples/{example_id}-")
+    assert image_rel.endswith(".png")
 
     served = await api_client.get(f"/api/examples/{example_id}/image")
     assert served.status_code == 200
@@ -137,6 +142,44 @@ async def test_search_endpoint_priority_boost(api_client, isolated_results) -> N
     assert response.status_code == 200
     assert [hits[0]["id"], hits[1]["id"]] == [high.json()["id"], medium.json()["id"]]
     assert hits[0]["score"] > hits[1]["score"]
+
+
+@pytest.mark.anyio
+async def test_upload_same_extension_db_failure_preserves_prior_bytes(
+    api_client, isolated_results, monkeypatch
+) -> None:
+    """Second PNG upload with DB failure must not overwrite the live PNG bytes."""
+    rows = (await api_client.get("/api/examples")).json()
+    example_id = rows[0]["id"]
+
+    png_a = _png_bytes()
+    first = await api_client.post(
+        f"/api/examples/{example_id}/image",
+        files={"file": ("a.png", png_a, "image/png")},
+    )
+    assert first.status_code == 200
+    path_a = first.json()["image_path"]
+
+    def _boom(*args, **kwargs):
+        raise sqlite3.DatabaseError("injected failure")
+
+    monkeypatch.setattr(examples_repo, "set_image_path", _boom)
+
+    png_b = _png_bytes_tinted()
+    with pytest.raises(sqlite3.DatabaseError):
+        await api_client.post(
+            f"/api/examples/{example_id}/image",
+            files={"file": ("b.png", png_b, "image/png")},
+        )
+
+    # DB pointer must still point at path_a with path_a's bytes intact.
+    refetched = await api_client.get(f"/api/examples/{example_id}")
+    assert refetched.status_code == 200
+    assert refetched.json()["image_path"] == path_a
+
+    served = await api_client.get(f"/api/examples/{example_id}/image")
+    assert served.status_code == 200
+    assert served.content == png_a  # NOT png_b
 
 
 @pytest.mark.anyio
@@ -260,18 +303,21 @@ async def test_upload_image_replaces_old_extension_atomically(
         files={"file": ("a.png", _png_bytes(), "image/png")},
     )
     assert first.status_code == 200
+    first_rel = first.json()["image_path"]
 
     second = await api_client.post(
         f"/api/examples/{example_id}/image",
         files={"file": ("a.jpg", _jpeg_bytes(), "image/jpeg")},
     )
     assert second.status_code == 200
-    assert second.json()["image_path"].endswith(".jpg")
+    second_rel = second.json()["image_path"]
+    assert second_rel.endswith(".jpg")
+    assert second_rel != first_rel  # fresh token per upload
 
     examples_dir = isolated_results / "examples"
     siblings = {p.name for p in examples_dir.iterdir()}
-    assert f"{example_id}.jpg" in siblings
-    assert f"{example_id}.png" not in siblings
+    assert Path(second_rel).name in siblings
+    assert Path(first_rel).name not in siblings  # old cleaned up
     assert not any(name.endswith(".tmp") for name in siblings), siblings
 
 
@@ -290,10 +336,12 @@ async def test_delete_leaves_no_file_behind_even_if_unlink_races(
 
     import pathlib
 
+    image_rel = upload.json()["image_path"]
+    target_name = Path(image_rel).name
     original_unlink = pathlib.Path.unlink
 
     def _raise_missing(self, *args, **kwargs):
-        if self.name == f"{example_id}.png":
+        if self.name == target_name:
             raise FileNotFoundError(str(self))
         return original_unlink(self, *args, **kwargs)
 
@@ -347,4 +395,11 @@ def _jpeg_bytes() -> bytes:
     image = Image.new("RGB", (2, 2), color=(240, 30, 60))
     buffer = io.BytesIO()
     image.save(buffer, format="JPEG")
+    return buffer.getvalue()
+
+
+def _png_bytes_tinted() -> bytes:
+    image = Image.new("RGB", (2, 2), color=(200, 20, 40))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
     return buffer.getvalue()
