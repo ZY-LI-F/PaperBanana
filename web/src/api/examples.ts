@@ -8,13 +8,15 @@ export class ExamplesApiError extends Error {
   details: unknown;
   path: string;
   status: number;
+  statusText: string;
 
-  constructor(path: string, status: number, details: unknown) {
-    super(`API ${status} for ${path}`);
+  constructor(path: string, status: number, statusText: string, details: unknown) {
+    super(`API ${status}${statusText ? ` ${statusText}` : ''} for ${path}`);
     this.name = 'ExamplesApiError';
     this.details = details;
     this.path = path;
     this.status = status;
+    this.statusText = statusText;
   }
 }
 
@@ -87,7 +89,9 @@ async function request<T>(path: string, init?: JsonInit, query?: QueryParams): P
     },
   });
   const payload = await readResponseBody(response);
-  if (!response.ok) throw new ExamplesApiError(finalPath, response.status, payload);
+  if (!response.ok) {
+    throw new ExamplesApiError(finalPath, response.status, response.statusText, payload);
+  }
   return payload as T;
 }
 
