@@ -1,12 +1,19 @@
 import { useEffect, useId, useState } from 'react';
-import { listExamples as fetchExamples, type ExampleRow } from '../../api/examples';
+import {
+  ExamplesApiError,
+  listExamples as fetchExamples,
+  type ExampleRow,
+} from '../../api/examples';
 import type { ExampleLocale } from '../../data/examples';
-import { EXAMPLES } from '../../data/examples';
 import { Button } from './Button';
 import { Field } from './Field';
 import { HelperText } from './HelperText';
 import { Label } from './Label';
 import { Select } from './Select';
+
+const MAX_ERROR_DETAIL_LENGTH = 200;
+
+type ExamplePickerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export type ExamplePickerLoadPayload = {
   id: string;
@@ -35,12 +42,85 @@ function getLocalizedPayload(example: ExampleRow, locale: ExampleLocale): Exampl
   };
 }
 
-function getDefaultExampleId() {
-  const firstExample = EXAMPLES[0];
-  if (!firstExample) {
-    throw new Error('ExamplePicker requires at least one example.');
+function getErrorDetails(details: unknown) {
+  if (typeof details === 'string') return details.trim();
+  if (details == null) return '';
+  try {
+    return JSON.stringify(details);
+  } catch {
+    return String(details);
   }
-  return firstExample.id;
+}
+
+function truncate(text: string) {
+  return text.length <= MAX_ERROR_DETAIL_LENGTH ? text : text.slice(0, MAX_ERROR_DETAIL_LENGTH);
+}
+
+function describeLoadError(error: unknown) {
+  if (error instanceof ExamplesApiError) {
+    const statusLine = [error.status, error.statusText].filter(Boolean).join(' ');
+    const body = truncate(getErrorDetails(error.details));
+    return [statusLine, body].filter(Boolean).join(' ');
+  }
+  if (error instanceof Error) return truncate(error.message);
+  return 'Unknown error';
+}
+
+function buildDisciplineOptions(locale: ExampleLocale, examples: ExampleRow[]) {
+  return examples.map((example) => ({
+    label: `${priorityPrefix(example)}${example.discipline} | ${locale === 'zh' ? example.title_zh : example.title_en}`,
+    value: example.id,
+  }));
+}
+
+function priorityPrefix(example: Pick<ExampleRow, 'priority'>) {
+  return example.priority === 3 ? '★ 高 · ' : '';
+}
+
+function sortExamples(rows: ExampleRow[]) {
+  return [...rows].sort((left, right) => {
+    if (left.priority !== right.priority) return right.priority - left.priority;
+    return left.discipline.localeCompare(right.discipline);
+  });
+}
+
+function renderLoadingState() {
+  return (
+    <div aria-busy="true" className="rounded-lg border border-border bg-subtle p-4">
+      <p className="m-0 text-sm text-secondary">加载示例中 / Loading examples...</p>
+    </div>
+  );
+}
+
+function renderEmptyState() {
+  return (
+    <div className="rounded-lg border border-border bg-subtle p-4">
+      <p className="m-0 text-sm text-secondary">
+        尚未配置示例，请到{' '}
+        <a className="font-medium text-primary underline underline-offset-2" href="/examples">
+          示例库 / Examples page
+        </a>{' '}
+        新建。No examples configured yet — create one there.
+      </p>
+    </div>
+  );
+}
+
+function renderErrorState(detail: string, disabled: boolean, onRetry: () => void) {
+  return (
+    <div className="rounded-lg border border-danger bg-subtle p-4" role="alert">
+      <p className="m-0 text-sm font-medium text-danger">加载示例失败 / Failed to load examples</p>
+      <p className="mt-2 whitespace-pre-wrap break-words font-mono text-xs text-danger">{detail}</p>
+      <button
+        className="mt-3 inline-flex items-center justify-center rounded-md border border-border bg-surface px-4 py-3 text-sm font-medium text-primary transition hover:border-border-strong hover:text-accent2 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={disabled}
+        onClick={onRetry}
+        type="button"
+      >
+        重试 / Retry
+      </button>
+    </div>
+  );
 }
 
 export function ExamplePicker({
@@ -49,36 +129,42 @@ export function ExamplePicker({
   onLoad,
 }: ExamplePickerProps) {
   const idPrefix = useId();
-  const [examples, setExamples] = useState<ExampleRow[]>(() => sortExamples(buildFallbackExamples()));
-  const [selectedId, setSelectedId] = useState(getDefaultExampleId);
+  const [examples, setExamples] = useState<ExampleRow[]>([]);
+  const [selectedId, setSelectedId] = useState('');
   const [locale, setLocale] = useState<ExampleLocale>(initialLocale);
-  const selectedExample = examples.find((example) => example.id === selectedId) ?? examples[0];
+  const [status, setStatus] = useState<ExamplePickerStatus>('idle');
+  const [errorDetail, setErrorDetail] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
+  function loadExamples() {
+    setStatus('loading');
+    setErrorDetail('');
     void fetchExamples()
       .then((rows) => {
-        if (cancelled) return;
         setExamples(sortExamples(rows));
+        setStatus('ready');
       })
-      .catch(() => {
-        if (cancelled) return;
-        setExamples(sortExamples(buildFallbackExamples()));
+      .catch((error: unknown) => {
+        setExamples([]);
+        setStatus('error');
+        setErrorDetail(describeLoadError(error));
       });
-    return () => {
-      cancelled = true;
-    };
+  }
+
+  useEffect(() => {
+    loadExamples();
   }, []);
 
   useEffect(() => {
-    if (!examples.some((example) => example.id === selectedId) && examples[0]) {
-      setSelectedId(examples[0].id);
-    }
-  }, [examples, selectedId]);
+    if (status !== 'ready') return;
+    if (examples.some((example) => example.id === selectedId)) return;
+    setSelectedId(examples[0]?.id ?? '');
+  }, [examples, selectedId, status]);
 
-  if (!selectedExample) {
-    throw new Error(`Unknown example id: ${selectedId}`);
-  }
+  if (status === 'idle' || status === 'loading') return renderLoadingState();
+  if (status === 'error') return renderErrorState(errorDetail, disabled, loadExamples);
+  if (examples.length === 0) return renderEmptyState();
+
+  const selectedExample = examples.find((example) => example.id === selectedId) ?? examples[0];
 
   return (
     <div className="rounded-lg border border-border bg-subtle p-4">
@@ -88,9 +174,9 @@ export function ExamplePicker({
           <Select
             disabled={disabled}
             id={`${idPrefix}-example`}
-            options={buildDisciplineOptions(locale, examples)}
-            value={selectedId}
             onChange={(event) => setSelectedId(event.currentTarget.value)}
+            options={buildDisciplineOptions(locale, examples)}
+            value={selectedExample.id}
           />
           <HelperText>
             {selectedExample.discipline}; loads method content and caption together.
@@ -102,9 +188,9 @@ export function ExamplePicker({
           <Select
             disabled={disabled}
             id={`${idPrefix}-locale`}
+            onChange={(event) => setLocale(event.currentTarget.value as ExampleLocale)}
             options={[...localeOptions]}
             value={locale}
-            onChange={(event) => setLocale(event.currentTarget.value as ExampleLocale)}
           />
         </Field>
 
@@ -118,33 +204,4 @@ export function ExamplePicker({
       </div>
     </div>
   );
-}
-
-function buildDisciplineOptions(locale: ExampleLocale, examples: ExampleRow[]) {
-  return examples.map((example) => ({
-    label: `${priorityPrefix(example)}${example.discipline} | ${locale === 'zh' ? example.title_zh : example.title_en}`,
-    value: example.id,
-  }));
-}
-
-function buildFallbackExamples(): ExampleRow[] {
-  return EXAMPLES.map((example) => ({
-    ...example,
-    created_at: '',
-    image_path: null,
-    priority: 2,
-    suggested_aspect_ratio: example.suggested_aspect_ratio ?? null,
-    updated_at: '',
-  }));
-}
-
-function priorityPrefix(example: Pick<ExampleRow, 'priority'>) {
-  return example.priority === 3 ? '★ 高 · ' : '';
-}
-
-function sortExamples(rows: ExampleRow[]) {
-  return [...rows].sort((left, right) => {
-    if (left.priority !== right.priority) return right.priority - left.priority;
-    return left.discipline.localeCompare(right.discipline);
-  });
 }
