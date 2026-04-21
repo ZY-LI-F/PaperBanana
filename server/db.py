@@ -83,9 +83,37 @@ _DDL_STATEMENTS = (
         set_at TEXT NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS ref_overrides (
+        task TEXT NOT NULL CHECK (task IN ('diagram','plot')),
+        id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK (action IN ('patch','create','delete')),
+        content TEXT,
+        visual_intent TEXT,
+        category TEXT,
+        additional_info TEXT,
+        primary_image_key TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (task, id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ref_images (
+        key TEXT PRIMARY KEY,
+        task TEXT NOT NULL CHECK (task IN ('diagram','plot')),
+        ref_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('main','variant')),
+        style TEXT,
+        file_path TEXT NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_run_stages_run_id ON run_stages(run_id)",
     "CREATE INDEX IF NOT EXISTS idx_examples_priority_created ON examples(priority DESC, created_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_ref_images_ref ON ref_images(task, ref_id, order_index)",
 )
 
 
