@@ -30,12 +30,17 @@ INSERT_COLUMNS = (
     "updated_at",
 )
 DEFAULT_PRIORITY = 2
+SEED_MARKER_KEY = "examples_seeded_at"
 
 
-def seed_if_empty(connection: sqlite3.Connection) -> int:
-    # Race-safe: INSERT OR IGNORE skips rows whose primary key already
-    # exists, so concurrent callers never collide. Return value is the
-    # number of rows that were actually inserted this call.
+def seed_once(connection: sqlite3.Connection) -> int:
+    marker = connection.execute(
+        "SELECT value FROM _meta WHERE key = ?",
+        (SEED_MARKER_KEY,),
+    ).fetchone()
+    if marker is not None:
+        return 0
+
     timestamp = now_iso()
     params = [_seed_params(item, timestamp) for item in SEED_EXAMPLES]
     placeholders = ", ".join("?" for _ in INSERT_COLUMNS)
@@ -44,7 +49,16 @@ def seed_if_empty(connection: sqlite3.Connection) -> int:
         f"INSERT OR IGNORE INTO examples ({columns_sql}) VALUES ({placeholders})",
         params,
     )
-    return int(cursor.rowcount or 0)
+    inserted = int(cursor.rowcount or 0)
+    connection.execute(
+        "INSERT OR REPLACE INTO _meta (key, value, set_at) VALUES (?, ?, ?)",
+        (SEED_MARKER_KEY, timestamp, timestamp),
+    )
+    return inserted
+
+
+def seed_if_empty(connection: sqlite3.Connection) -> int:
+    return seed_once(connection)
 
 
 def now_iso() -> str:
