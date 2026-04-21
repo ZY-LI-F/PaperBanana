@@ -42,6 +42,21 @@ def seed_once(connection: sqlite3.Connection) -> int:
         return 0
 
     timestamp = now_iso()
+
+    # Legacy-DB upgrade path: pre-_meta builds seeded directly. If the
+    # examples table is already populated, treat this DB as already-seeded
+    # and record the marker WITHOUT re-inserting — otherwise user-deleted
+    # bundled rows would resurrect on first startup after upgrade.
+    existing = connection.execute(
+        "SELECT 1 FROM examples LIMIT 1"
+    ).fetchone()
+    if existing is not None:
+        connection.execute(
+            "INSERT OR REPLACE INTO _meta (key, value, set_at) VALUES (?, ?, ?)",
+            (SEED_MARKER_KEY, timestamp, timestamp),
+        )
+        return 0
+
     params = [_seed_params(item, timestamp) for item in SEED_EXAMPLES]
     placeholders = ", ".join("?" for _ in INSERT_COLUMNS)
     columns_sql = ", ".join(INSERT_COLUMNS)

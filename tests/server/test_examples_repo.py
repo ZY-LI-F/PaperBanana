@@ -223,6 +223,35 @@ def test_seed_marker_prevents_reseed_on_truly_empty_table(isolated_results) -> N
     assert count == 0
 
 
+def test_seed_once_legacy_db_records_marker_without_reinserting(isolated_results) -> None:
+    """Pre-_meta installations: existing rows + missing marker must NOT resurrect deletions."""
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        # Simulate a legacy DB: table populated under pre-_meta build, user
+        # then deleted one seeded row — and NO marker was ever set.
+        seed_once(connection)  # first seeds 6 rows and sets marker
+        connection.execute("DELETE FROM _meta WHERE key = ?", (SEED_MARKER_KEY,))
+        examples_repo.delete_example(connection, SEEDED_ROW_ID)
+
+        # Upgrade path: seed_once on a populated table with no marker.
+        inserted = seed_once(connection)
+
+        count = connection.execute(
+            "SELECT COUNT(*) AS count FROM examples"
+        ).fetchone()["count"]
+        ghost = examples_repo.get_example(connection, SEEDED_ROW_ID)
+        marker = connection.execute(
+            "SELECT value FROM _meta WHERE key = ?", (SEED_MARKER_KEY,)
+        ).fetchone()
+
+    assert inserted == 0
+    assert count == 5
+    assert ghost is None
+    assert marker is not None
+
+
 def test_update_partial_non_required_field_ok(isolated_results) -> None:
     del isolated_results
     init_db()
