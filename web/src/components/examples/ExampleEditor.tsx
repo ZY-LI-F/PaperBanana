@@ -123,7 +123,7 @@ export function ExampleEditor({
                 <img
                   alt="Current example"
                   className="h-40 w-full object-cover"
-                  src={exampleImageUrl(draft.id)}
+                  src={exampleImageUrl({ id: draft.id, image_path: draft.image_path })}
                 />
               ) : (
                 <div className="flex h-40 items-center justify-center text-sm text-muted">
