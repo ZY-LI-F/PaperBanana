@@ -23,6 +23,7 @@ from google.genai import types
 import base64, io, asyncio
 from PIL import Image
 
+from server.refs.service import list_refs  # noqa: E402
 from utils import generation_utils
 from .base_agent import BaseAgent
 
@@ -101,12 +102,12 @@ class RetrieverAgent(BaseAgent):
         elif retrieval_setting == "random":
             # Randomly sample from reference pool
             data["top10_references"] = self._load_random_references(cfg)
-            data["retrieved_examples"] = []  # Planner will load from ref.json
+            data["retrieved_examples"] = []  # Planner will load from merged refs
             
         elif retrieval_setting == "auto":
             # Call model to retrieve and parse results
             data["top10_references"] = await self._retrieve_and_parse(data, cfg)
-            data["retrieved_examples"] = []  # Planner will load from ref.json
+            data["retrieved_examples"] = []  # Planner will load from merged refs
         else:
             raise ValueError(f"Unknown retrieval_setting: {retrieval_setting}")
         
@@ -130,9 +131,7 @@ class RetrieverAgent(BaseAgent):
     
     def _load_random_references(self, cfg: dict) -> list:
         """Randomly sample references from reference pool"""
-        with open(self.exp_config.work_dir / f"data/PaperBananaBench/{cfg['task_name']}/ref.json", "r", encoding="utf-8") as f:
-            candidate_pool = json.load(f)
-        
+        candidate_pool = list_refs(task=cfg["task_name"])
         id_list = [item["id"] for item in candidate_pool]
         # Randomly select up to 10 examples
         sample_size = min(10, len(id_list))
@@ -144,11 +143,10 @@ class RetrieverAgent(BaseAgent):
         visual_intent = data["visual_intent"]
         
         user_prompt = f"**Target Input**\n- {cfg['target_labels'][0]}: {visual_intent}\n- {cfg['target_labels'][1]}: {content}\n\n**Candidate Pool**\n"
-        
-        with open(self.exp_config.work_dir / f"data/PaperBananaBench/{cfg['task_name']}/ref.json", "r", encoding="utf-8") as f:
-            candidate_pool = json.load(f)
-            if cfg["ref_limit"]:
-                candidate_pool = candidate_pool[:cfg["ref_limit"]]
+
+        candidate_pool = list_refs(task=cfg["task_name"])
+        if cfg["ref_limit"]:
+            candidate_pool = candidate_pool[:cfg["ref_limit"]]
         
         for idx, item in enumerate(candidate_pool):
             user_prompt += f"Candidate {cfg['candidate_type']} {idx+1}:\n"
@@ -197,8 +195,6 @@ class RetrieverAgent(BaseAgent):
             print(f"Warning: Failed to parse retrieval result: {e}")
             print(f"Raw response: {raw_response[:200]}...")
             return []
-
-
 
 DIAGRAM_RETRIEVER_AGENT_SYSTEM_PROMPT = """
 # Background & Goal
