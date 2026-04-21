@@ -54,6 +54,11 @@ export const router = createBrowserRouter([
         path: 'examples',
       },
       {
+        handle: { crumb: '示例候选池 / Refs' },
+        lazy: async () => ({ Component: (await import('./Refs')).default }),
+        path: 'refs',
+      },
+      {
         element: <SettingsRoute />,
         handle: { crumb: 'Settings' },
         path: 'settings',
