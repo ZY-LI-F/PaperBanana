@@ -76,6 +76,13 @@ _DDL_STATEMENTS = (
         CHECK (priority IN (1,2,3))
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS _meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        set_at TEXT NOT NULL
+    )
+    """,
     "CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_run_stages_run_id ON run_stages(run_id)",
     "CREATE INDEX IF NOT EXISTS idx_examples_priority_created ON examples(priority DESC, created_at DESC)",

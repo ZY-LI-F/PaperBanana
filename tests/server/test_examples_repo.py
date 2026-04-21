@@ -6,7 +6,7 @@ import pytest
 
 from server.db import connect, init_db
 from server.repos import examples_repo
-from server.seeds.examples_seed import seed_if_empty
+from server.seeds.examples_seed import SEED_MARKER_KEY, seed_if_empty, seed_once
 
 
 BASE_ROW = {
@@ -18,6 +18,7 @@ BASE_ROW = {
     "caption_en": "crispr token caption",
     "caption_zh": "crispr 词条 说明",
 }
+SEEDED_ROW_ID = "target-crispr-multiomics"
 
 
 def test_table_created_on_init(isolated_results) -> None:
@@ -25,12 +26,11 @@ def test_table_created_on_init(isolated_results) -> None:
     init_db()
 
     with closing(connect()) as connection:
-        row = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'examples'"
-        ).fetchone()
+        rows = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('examples', '_meta')"
+        ).fetchall()
 
-    assert row is not None
-    assert row["name"] == "examples"
+    assert {row["name"] for row in rows} == {"examples", "_meta"}
 
 
 def test_seed_idempotent(isolated_results) -> None:
@@ -45,6 +45,23 @@ def test_seed_idempotent(isolated_results) -> None:
     assert first == 6
     assert second == 0
     assert count == 6
+
+
+def test_seed_marker_is_recorded(isolated_results) -> None:
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        inserted = seed_once(connection)
+        marker = connection.execute(
+            "SELECT key, value, set_at FROM _meta WHERE key = ?",
+            (SEED_MARKER_KEY,),
+        ).fetchone()
+
+    assert inserted == 6
+    assert marker is not None
+    assert marker["key"] == SEED_MARKER_KEY
+    assert marker["value"] == marker["set_at"]
 
 
 def test_insert_get_update_delete_roundtrip(isolated_results) -> None:
@@ -171,6 +188,39 @@ def test_seed_if_empty_is_race_safe(isolated_results) -> None:
     assert second == 0
     assert third == 0
     assert count == 6
+
+
+def test_deleted_seeded_row_stays_deleted_after_reseed(isolated_results) -> None:
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        first = seed_once(connection)
+        deleted = examples_repo.delete_example(connection, SEEDED_ROW_ID)
+        second = seed_once(connection)
+        count = connection.execute("SELECT COUNT(*) AS count FROM examples").fetchone()["count"]
+        row = examples_repo.get_example(connection, SEEDED_ROW_ID)
+
+    assert first == 6
+    assert deleted is True
+    assert second == 0
+    assert count == 5
+    assert row is None
+
+
+def test_seed_marker_prevents_reseed_on_truly_empty_table(isolated_results) -> None:
+    del isolated_results
+    init_db()
+
+    with closing(connect()) as connection, connection:
+        first = seed_once(connection)
+        connection.execute("DELETE FROM examples")
+        second = seed_once(connection)
+        count = connection.execute("SELECT COUNT(*) AS count FROM examples").fetchone()["count"]
+
+    assert first == 6
+    assert second == 0
+    assert count == 0
 
 
 def test_update_partial_non_required_field_ok(isolated_results) -> None:
