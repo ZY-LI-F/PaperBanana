@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { refImageUrl, type RefRow, type RefTask } from '../../api/refs';
 import { Button } from '../ui/Button';
 import { Empty } from '../ui/Empty';
+import { ImageLightbox } from '../ui/ImageLightbox';
 import { Tag } from '../ui/Tag';
 import { panelClass } from '../ui/shared';
 import { findThumbnail, getCategoryLabel } from './constants';
@@ -14,6 +16,19 @@ type RefListProps = {
 };
 
 export function RefList({ refs, task, onDelete, onEdit, onManageImages }: RefListProps) {
+  const [zoomAlt, setZoomAlt] = useState('');
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
+
+  function handleCloseZoom() {
+    setZoomAlt('');
+    setZoomSrc(null);
+  }
+
+  function handleZoom(src: string, alt: string) {
+    setZoomAlt(alt);
+    setZoomSrc(src);
+  }
+
   if (!refs.length) {
     return (
       <Empty
@@ -24,40 +39,54 @@ export function RefList({ refs, task, onDelete, onEdit, onManageImages }: RefLis
   }
 
   return (
-    <div className="grid gap-4">
-      {refs.map((row) => (
-        <RefCard
-          key={row.id}
-          row={row}
-          task={task}
-          onDelete={onDelete}
-          onEdit={onEdit}
-          onManageImages={onManageImages}
-        />
-      ))}
-    </div>
+    <>
+      <div className="grid gap-4">
+        {refs.map((row) => (
+          <RefCard
+            key={row.id}
+            row={row}
+            task={task}
+            onDelete={onDelete}
+            onEdit={onEdit}
+            onManageImages={onManageImages}
+            onZoom={handleZoom}
+          />
+        ))}
+      </div>
+      <ImageLightbox alt={zoomAlt} src={zoomSrc} onClose={handleCloseZoom} />
+    </>
   );
 }
 
 type RefCardProps = Omit<RefListProps, 'refs'> & {
   row: RefRow;
+  onZoom: (src: string, alt: string) => void;
 };
 
-function RefCard({ row, task, onDelete, onEdit, onManageImages }: RefCardProps) {
+function RefCard({ row, task, onDelete, onEdit, onManageImages, onZoom }: RefCardProps) {
   const thumbnail = findThumbnail(row);
   const categoryLabel = getCategoryLabel(row.category);
+  const thumbnailSrc = thumbnail ? refImageUrl(task, row.id, thumbnail) : null;
+  const thumbnailAlt = `${row.id} thumbnail`;
 
   return (
     <article className={`${panelClass} overflow-hidden`}>
       <div className="grid gap-4 p-4 md:grid-cols-[104px_minmax(0,1fr)_auto] md:items-center">
         <div className="overflow-hidden rounded-lg border border-border bg-subtle">
-          {thumbnail ? (
-            <img
-              alt={`${row.id} thumbnail`}
-              className="h-24 w-24 object-cover md:h-[104px] md:w-[104px]"
-              loading="lazy"
-              src={refImageUrl(task, row.id, thumbnail)}
-            />
+          {thumbnailSrc ? (
+            <button
+              aria-label="放大查看 / Zoom"
+              className="block h-24 w-24 md:h-[104px] md:w-[104px]"
+              type="button"
+              onClick={() => onZoom(thumbnailSrc, thumbnailAlt)}
+            >
+              <img
+                alt={thumbnailAlt}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                src={thumbnailSrc}
+              />
+            </button>
           ) : (
             <div className="flex h-24 w-24 items-center justify-center text-xs text-muted md:h-[104px] md:w-[104px]">
               No image

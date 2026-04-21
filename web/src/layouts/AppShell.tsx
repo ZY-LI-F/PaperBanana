@@ -16,7 +16,6 @@ const navItems = [
   { accent: 'R', label: 'Refine', to: '/refine' },
   { accent: 'H', label: 'History', to: '/history' },
   { accent: 'L', label: 'Logs', to: '/logs' },
-  { accent: 'E', label: '示例库 / Examples', to: '/examples' },
   { accent: 'F', label: '示例候选池 / Refs', to: '/refs' },
   { accent: 'S', label: 'Settings', to: '/settings' },
   { accent: 'D', label: 'Design', to: '/design' },

@@ -12,6 +12,7 @@ import { Button } from '../ui/Button';
 import { ErrorText } from '../ui/ErrorText';
 import { Field } from '../ui/Field';
 import { HelperText } from '../ui/HelperText';
+import { ImageLightbox } from '../ui/ImageLightbox';
 import { Label } from '../ui/Label';
 import { Modal } from '../ui/Modal';
 import { Select } from '../ui/Select';
@@ -49,6 +50,7 @@ export function RefImageManager({
   task,
 }: RefImageManagerProps) {
   const [drafts, setDrafts] = useState<Record<string, ImageDraft>>({});
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadRole, setUploadRole] = useState<RefImageRole>('variant');
   const [uploadStyle, setUploadStyle] = useState('');
@@ -193,10 +195,12 @@ export function RefImageManager({
               onDraftChange={(field, value) => patchDraft(setDrafts, image.key, field, value)}
               onNudge={(delta) => handleNudgeImage(image, delta)}
               onSave={() => handleSaveImage(image.key)}
+              onZoom={setZoomSrc}
             />
           ))}
         </div>
       </div>
+      <ImageLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
     </Modal>
   );
 }
@@ -292,6 +296,7 @@ type ImageCardProps = {
   onDraftChange: (field: keyof ImageDraft, value: string) => void;
   onNudge: (delta: number) => Promise<void>;
   onSave: () => void;
+  onZoom: (src: string) => void;
   refId: string;
   task: RefTask;
 };
@@ -304,6 +309,7 @@ function ImageCard({
   onDraftChange,
   onNudge,
   onSave,
+  onZoom,
   refId,
   task,
 }: ImageCardProps) {
@@ -312,12 +318,19 @@ function ImageCard({
   return (
     <article className="grid gap-4 rounded-lg border border-border p-4 md:grid-cols-[112px_minmax(0,1fr)]">
       <div className="overflow-hidden rounded-lg border border-border bg-subtle">
-        <img
-          alt={toImageMeta(image)}
-          className="h-24 w-24 object-cover md:h-28 md:w-28"
-          loading="lazy"
-          src={refImageUrl(task, refId, image)}
-        />
+        <button
+          aria-label="放大查看 / Zoom"
+          className="block h-24 w-24 md:h-28 md:w-28"
+          onClick={() => onZoom(refImageUrl(task, refId, image))}
+          type="button"
+        >
+          <img
+            alt={toImageMeta(image)}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            src={refImageUrl(task, refId, image)}
+          />
+        </button>
       </div>
 
       <div className="space-y-3">
