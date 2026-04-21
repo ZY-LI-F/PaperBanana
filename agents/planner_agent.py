@@ -17,11 +17,14 @@ Vanilla Agent - Directly rendering images based on the method section.
 """
 
 import json
+from pathlib import Path
 from typing import Dict, Any
 from google.genai import types
 import base64, io, asyncio
 from PIL import Image
 
+import server.settings as settings
+from server.refs.service import list_refs, resolve_image  # noqa: E402
 from utils import generation_utils
 from .base_agent import BaseAgent
 
@@ -66,12 +69,10 @@ class PlannerAgent(BaseAgent):
         # Check if retriever has already provided full examples (e.g., in manual mode)
         examples = data.get("retrieved_examples", [])
         if not examples:
-            retrieved_ids = data.get("top10_references", [])
-            if retrieved_ids:
-                with open(self.exp_config.work_dir / f"data/PaperBananaBench/{cfg['task_name']}/ref.json", "r", encoding="utf-8") as f:
-                    candidate_pool = json.load(f)
-                id_to_item = {item["id"]: item for item in candidate_pool}
-                examples = [id_to_item[ref_id] for ref_id in retrieved_ids if ref_id in id_to_item]
+            examples = self._load_retrieved_examples(
+                cfg["task_name"],
+                data.get("top10_references", []),
+            )
         
         user_prompt = ""
         for idx, item in enumerate(examples):
@@ -85,8 +86,7 @@ class PlannerAgent(BaseAgent):
             user_prompt += f"{cfg['visual_intent_label']}: {item['visual_intent']}\nReference {cfg['task_name'].capitalize()}: "
             content_list.append({"type": "text", "text": user_prompt})
             
-            # Resolve relative path using work_dir
-            image_path = self.exp_config.work_dir / f"data/PaperBananaBench/{cfg['task_name']}" / item["path_to_gt_image"]
+            image_path = self._resolve_reference_image_path(cfg["task_name"], item)
             with open(image_path, "rb") as f:
                 ref_image_base64 = base64.b64encode(f.read()).decode("utf-8")
             content_list.append({"type": "image", "image_base64": ref_image_base64})
@@ -132,6 +132,25 @@ class PlannerAgent(BaseAgent):
             data[f"target_{cfg['task_name']}_desc{idx}"] = response.strip()
 
         return data
+
+    def _load_retrieved_examples(self, task_name: str, retrieved_ids: list[str]) -> list[dict[str, Any]]:
+        if not retrieved_ids:
+            return []
+        candidate_pool = list_refs(task=task_name)
+        id_to_item = {item["id"]: item for item in candidate_pool}
+        return [id_to_item[ref_id] for ref_id in retrieved_ids if ref_id in id_to_item]
+
+    def _resolve_reference_image_path(self, task_name: str, item: dict[str, Any]) -> Path:
+        for image in item.get("images", []):
+            if image.get("role") != "main" or image.get("source") == "baseline":
+                continue
+            resolved = resolve_image(task_name, item["id"], image["key"])
+            if resolved is not None:
+                return Path(resolved["absolute_path"])
+        baseline_path = item.get("path_to_gt_image")
+        if not baseline_path:
+            raise ValueError(f"reference {item['id']} is missing path_to_gt_image")
+        return Path(settings.BASELINE_DIR) / task_name / str(baseline_path)
 
 
 
