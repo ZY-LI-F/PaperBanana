@@ -17,6 +17,7 @@ const navItems = [
   { accent: 'H', label: 'History', to: '/history' },
   { accent: 'L', label: 'Logs', to: '/logs' },
   { accent: 'E', label: '示例库 / Examples', to: '/examples' },
+  { accent: 'F', label: '示例候选池 / Refs', to: '/refs' },
   { accent: 'S', label: 'Settings', to: '/settings' },
   { accent: 'D', label: 'Design', to: '/design' },
 ];
@@ -65,8 +66,17 @@ export default function AppShell() {
         >
           <div className="flex items-center justify-between gap-2 px-1">
             <div className="overflow-hidden">
-              <p className={cn('m-0 text-2xs font-semibold uppercase tracking-[var(--tracking-eyebrow)] text-muted', isCollapsed && 'sr-only')}>PaperBanana</p>
-              <p className={cn('m-0 text-lg font-semibold text-primary', isCollapsed && 'sr-only')}>Shell</p>
+              <p
+                className={cn(
+                  'm-0 text-2xs font-semibold uppercase tracking-[var(--tracking-eyebrow)] text-muted',
+                  isCollapsed && 'sr-only'
+                )}
+              >
+                PaperBanana
+              </p>
+              <p className={cn('m-0 text-lg font-semibold text-primary', isCollapsed && 'sr-only')}>
+                Shell
+              </p>
             </div>
           </div>
 
@@ -76,21 +86,32 @@ export default function AppShell() {
                 className={({ isActive }) =>
                   cn(
                     'flex items-center gap-3 rounded-md border px-3 py-3 text-sm font-medium transition',
-                    isActive ? 'border-border-strong bg-subtle text-accent1' : 'border-transparent text-secondary hover:bg-subtle hover:text-primary',
+                    isActive
+                      ? 'border-border-strong bg-subtle text-accent1'
+                      : 'border-transparent text-secondary hover:bg-subtle hover:text-primary'
                   )
                 }
                 key={item.to}
                 to={item.to}
               >
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-pill bg-subtle text-xs font-semibold text-accent2">{item.accent}</span>
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-pill bg-subtle text-xs font-semibold text-accent2">
+                  {item.accent}
+                </span>
                 <span className={cn(isCollapsed && 'sr-only')}>{item.label}</span>
               </NavLink>
             ))}
           </nav>
 
-          <div className={cn('space-y-3 border-t border-border px-1 pt-4', isCollapsed && 'items-center')}>
+          <div
+            className={cn(
+              'space-y-3 border-t border-border px-1 pt-4',
+              isCollapsed && 'items-center'
+            )}
+          >
             <Tag tone="neutral">Providers 0</Tag>
-            <p className={cn('m-0 text-xs text-muted', isCollapsed && 'sr-only')}>Registry counts will bind here once Settings data lands.</p>
+            <p className={cn('m-0 text-xs text-muted', isCollapsed && 'sr-only')}>
+              Registry counts will bind here once Settings data lands.
+            </p>
           </div>
         </aside>
 
@@ -99,8 +120,13 @@ export default function AppShell() {
             className="sticky top-0 z-10 border-b border-border backdrop-blur"
             style={{ backgroundColor: 'color-mix(in srgb, var(--bg-canvas) 95%, transparent)' }}
           >
-            <div className="flex items-center justify-between gap-4 px-6 py-4" style={{ minHeight: 'var(--topbar-height)' }}>
-              <Breadcrumb items={breadcrumbItems.length ? breadcrumbItems : [{ label: 'Generate' }]} />
+            <div
+              className="flex items-center justify-between gap-4 px-6 py-4"
+              style={{ minHeight: 'var(--topbar-height)' }}
+            >
+              <Breadcrumb
+                items={breadcrumbItems.length ? breadcrumbItems : [{ label: 'Generate' }]}
+              />
               {pageActions ? <div className="flex items-center gap-2">{pageActions}</div> : null}
             </div>
           </header>
