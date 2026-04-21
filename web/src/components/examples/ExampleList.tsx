@@ -42,7 +42,7 @@ export function ExampleList({
                   <img
                     alt={example.title_en}
                     className="h-32 w-full object-cover"
-                    src={exampleImageUrl(example.id)}
+                    src={exampleImageUrl(example)}
                   />
                 ) : (
                   <div className="flex h-32 items-center justify-center text-xs text-muted">

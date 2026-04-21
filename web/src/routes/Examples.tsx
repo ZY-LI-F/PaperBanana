@@ -55,6 +55,7 @@ export default function ExamplesRoute() {
 
   async function handleSave() {
     setIsSaving(true);
+    let createdSaved: ExampleRow | null = null;
     try {
       const payload = toPayload(draft);
       const saved = draft.id
@@ -64,6 +65,7 @@ export default function ExamplesRoute() {
       // if the upload fails the user's retry hits updateExample on the
       // same row instead of POSTing a duplicate.
       if (!draft.id) {
+        createdSaved = saved;
         setDraft((current) => ({ ...current, id: saved.id }));
         setEditorIntent('edit');
       }
@@ -71,6 +73,13 @@ export default function ExamplesRoute() {
       await refreshExamples();
       closeEditor();
     } catch (error) {
+      if (createdSaved !== null) {
+        try {
+          await refreshExamples();
+        } catch {
+          // Keep surfacing the original save error when the recovery refresh also fails.
+        }
+      }
       setEditorError(describeError(error));
     } finally {
       setIsSaving(false);

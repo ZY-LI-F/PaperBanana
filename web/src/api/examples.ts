@@ -125,7 +125,16 @@ export function uploadExampleImage(id: string, file: File): Promise<ExampleRow> 
   return request<ExampleRow>(`/api/examples/${id}/image`, { body: formData, method: 'POST' });
 }
 
-export function exampleImageUrl(id: string): string {
+export function exampleImageUrl(example: {
+  id: string;
+  updated_at?: string | null;
+  image_path?: string | null;
+}): string {
   const origin = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
-  return new URL(`/api/examples/${id}/image`, origin).toString();
+  const url = new URL(`/api/examples/${example.id}/image`, origin);
+  const token = example.image_path ?? example.updated_at ?? '';
+  if (token) {
+    url.searchParams.set('v', token);
+  }
+  return url.toString();
 }
