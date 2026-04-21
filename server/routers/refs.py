@@ -47,7 +47,11 @@ class RefOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     id: str
-    content: str
+    # `content` is a string for diagram refs (markdown methodology) but a
+    # structured dict for plot refs (chart data such as
+    # {"Year":[...], "Crop Yield":[...]}). Keep the union loose so both
+    # baseline schemas validate.
+    content: str | dict[str, Any]
     visual_intent: str
     category: str | None = None
     additional_info: dict[str, Any] = Field(default_factory=dict)
@@ -65,7 +69,7 @@ class RefOut(BaseModel):
 class RefCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    content: str
+    content: str | dict[str, Any]
     visual_intent: str
     category: str | None = None
     additional_info: dict[str, Any] | None = None
@@ -74,7 +78,7 @@ class RefCreate(BaseModel):
 class RefPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    content: str | None = None
+    content: str | dict[str, Any] | None = None
     visual_intent: str | None = None
     category: str | None = None
     additional_info: dict[str, Any] | None = None
