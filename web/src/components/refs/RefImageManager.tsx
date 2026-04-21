@@ -50,7 +50,6 @@ export function RefImageManager({
   task,
 }: RefImageManagerProps) {
   const [drafts, setDrafts] = useState<Record<string, ImageDraft>>({});
-  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadRole, setUploadRole] = useState<RefImageRole>('variant');
   const [uploadStyle, setUploadStyle] = useState('');
@@ -59,6 +58,8 @@ export function RefImageManager({
   const [actionError, setActionError] = useState<string | null>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [zoomAlt, setZoomAlt] = useState('');
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !row) return;
@@ -68,7 +69,25 @@ export function RefImageManager({
     setActionError(null);
     setActiveKey(null);
     setIsUploading(false);
+    setZoomAlt('');
+    setZoomSrc(null);
   }, [open, row]);
+
+  useEffect(() => {
+    if (open) return;
+    setZoomAlt('');
+    setZoomSrc(null);
+  }, [open]);
+
+  function handleCloseZoom() {
+    setZoomAlt('');
+    setZoomSrc(null);
+  }
+
+  function handleZoom(src: string, alt: string) {
+    setZoomAlt(alt);
+    setZoomSrc(src);
+  }
 
   async function handleUpload() {
     if (!uploadFile) {
@@ -152,56 +171,58 @@ export function RefImageManager({
   if (!row) return null;
 
   return (
-    <Modal
-      description={`维护 ${row.id} 的主图、变体图、style 标签与展示顺序。`}
-      footer={
-        <div className="flex justify-end">
-          <Button variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      }
-      onClose={onClose}
-      open={open}
-      size="lg"
-      title="管理图片 / Manage images"
-    >
-      <div className="space-y-6">
-        {actionError ? <InlineError message={actionError} /> : null}
-        <UploadPanel
-          isUploading={isUploading}
-          orderIndex={uploadOrderIndex}
-          role={uploadRole}
-          style={uploadStyle}
-          uploadError={uploadError}
-          uploadFile={uploadFile}
-          onOrderIndexChange={setUploadOrderIndex}
-          onRoleChange={setUploadRole}
-          onStyleChange={setUploadStyle}
-          onUpload={handleUpload}
-          onUploadFileChange={setUploadFile}
-        />
+    <>
+      <Modal
+        description={`维护 ${row.id} 的主图、变体图、style 标签与展示顺序。`}
+        footer={
+          <div className="flex justify-end">
+            <Button variant="secondary" onClick={onClose}>
+              Close
+            </Button>
+          </div>
+        }
+        onClose={onClose}
+        open={open}
+        size="lg"
+        title="管理图片 / Manage images"
+      >
+        <div className="space-y-6">
+          {actionError ? <InlineError message={actionError} /> : null}
+          <UploadPanel
+            isUploading={isUploading}
+            orderIndex={uploadOrderIndex}
+            role={uploadRole}
+            style={uploadStyle}
+            uploadError={uploadError}
+            uploadFile={uploadFile}
+            onOrderIndexChange={setUploadOrderIndex}
+            onRoleChange={setUploadRole}
+            onStyleChange={setUploadStyle}
+            onUpload={handleUpload}
+            onUploadFileChange={setUploadFile}
+          />
 
-        <div className="grid gap-4">
-          {row.images.map((image) => (
-            <ImageCard
-              draft={drafts[image.key] ?? createImageDraft(image)}
-              image={image}
-              isBusy={activeKey === image.key}
-              key={image.key}
-              refId={row.id}
-              task={task}
-              onDelete={handleDelete}
-              onDraftChange={(field, value) => patchDraft(setDrafts, image.key, field, value)}
-              onNudge={(delta) => handleNudgeImage(image, delta)}
-              onSave={() => handleSaveImage(image.key)}
-              onZoom={setZoomSrc}
-            />
-          ))}
+          <div className="grid gap-4">
+            {row.images.map((image) => (
+              <ImageCard
+                draft={drafts[image.key] ?? createImageDraft(image)}
+                image={image}
+                isBusy={activeKey === image.key}
+                key={image.key}
+                refId={row.id}
+                task={task}
+                onDelete={handleDelete}
+                onDraftChange={(field, value) => patchDraft(setDrafts, image.key, field, value)}
+                onNudge={(delta) => handleNudgeImage(image, delta)}
+                onSave={() => handleSaveImage(image.key)}
+                onZoom={handleZoom}
+              />
+            ))}
+          </div>
         </div>
-      </div>
-      <ImageLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
-    </Modal>
+      </Modal>
+      <ImageLightbox alt={zoomAlt} src={zoomSrc} onClose={handleCloseZoom} />
+    </>
   );
 }
 
@@ -296,7 +317,7 @@ type ImageCardProps = {
   onDraftChange: (field: keyof ImageDraft, value: string) => void;
   onNudge: (delta: number) => Promise<void>;
   onSave: () => void;
-  onZoom: (src: string) => void;
+  onZoom: (src: string, alt: string) => void;
   refId: string;
   task: RefTask;
 };
@@ -314,6 +335,8 @@ function ImageCard({
   task,
 }: ImageCardProps) {
   const readonly = image.source === 'baseline';
+  const imageAlt = toImageMeta(image);
+  const imageSrc = refImageUrl(task, refId, image);
 
   return (
     <article className="grid gap-4 rounded-lg border border-border p-4 md:grid-cols-[112px_minmax(0,1fr)]">
@@ -321,14 +344,14 @@ function ImageCard({
         <button
           aria-label="放大查看 / Zoom"
           className="block h-24 w-24 md:h-28 md:w-28"
-          onClick={() => onZoom(refImageUrl(task, refId, image))}
           type="button"
+          onClick={() => onZoom(imageSrc, imageAlt)}
         >
           <img
-            alt={toImageMeta(image)}
+            alt={imageAlt}
             className="h-full w-full object-cover"
             loading="lazy"
-            src={refImageUrl(task, refId, image)}
+            src={imageSrc}
           />
         </button>
       </div>
