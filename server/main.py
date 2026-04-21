@@ -12,6 +12,7 @@ from server.routers import (
     examples_router,
     history_router,
     logs_router,
+    refs_router,
     refine_router,
     runs_router,
     settings_router,
@@ -37,6 +38,7 @@ app.include_router(logs_router)
 app.include_router(refine_router)
 app.include_router(battle_router)
 app.include_router(examples_router)
+app.include_router(refs_router)
 
 
 @app.get("/api/health")
